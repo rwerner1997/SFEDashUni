@@ -1,4 +1,3 @@
-//SFE
 package com.sfe.dashboard;
 
 import android.bluetooth.BluetoothAdapter;
@@ -246,15 +245,16 @@ public class OBDManager {
             // TIER 1 — FAST: every loop (~10-15Hz)
             // RPM, Speed, MAP(boost), Pedal — must be responsive
             // ════════════════════════════════════════════════════
-            if (!currentHeader.isEmpty()) {
-                sendCmd("ATSHFFF");    // clear custom header — back to default broadcast
-                currentHeader = "";
+            // Always explicitly set 7DF before Mode 01 — never assume header state
+            if (!"7DF".equals(currentHeader)) {
+                sendCmd("ATSH7DF");
+                currentHeader = "7DF";
             }
             parseRPM(sendCmd("010C"));
             parseSpeed(sendCmd("010D"));
             parseMAP(sendCmd("010B"));
-            parsePedal(sendCmd("0149"));   // commanded throttle = pedal intent (drive-by-wire)
-            parseCatTemp(sendCmd("013C")); // catalyst temp bank 1 sensor 1 (Mode 01 PID 84)
+            parsePedal(sendCmd("0149"));
+            parseCatTemp(sendCmd("013C"));
 
             // ════════════════════════════════════════════════════
             // TIER 2 — MEDIUM: every 3rd loop (~3-5Hz)
@@ -283,10 +283,12 @@ public class OBDManager {
             // TIER 3a — ECU slow: every 10th loop (~1Hz)
             // ════════════════════════════════════════════════════
             if (loopCount % 10 == 0) {
+                // Switch back to 7DF for Mode 01 PIDs
+                if (!"7DF".equals(currentHeader)) { sendCmd("ATSH7DF"); currentHeader = "7DF"; }
                 parseBaro(sendCmd("0133"));
                 parseBattery(sendCmd("ATRV"));
 
-                if (!"7E0".equals(currentHeader)) { sendCmd("ATSH7E0"); currentHeader = "7E0"; }
+                sendCmd("ATSH7E0"); currentHeader = "7E0";
                 parseOilTemp(sendCmdTimeout("2210AF", CMD_TIMEOUT_SLOW));
                 parseRoughness(sendCmdTimeout("223062", CMD_TIMEOUT_SLOW), 1);
                 parseRoughness(sendCmdTimeout("223048", CMD_TIMEOUT_SLOW), 2);
