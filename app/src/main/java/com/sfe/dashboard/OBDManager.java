@@ -602,54 +602,60 @@ public class OBDManager {
     // ── Mode 22 TCU parsers ────────────────────────────────────────
 
     private void parseCVTTemp(String r) {
+        // MTH 00090005FFC6 = raw*9/5-58 (°F display), so raw-40 = °C
         if (isError(r)) return;
         int a = m22byte(r, 0); if (a < 0) return;
-        data.cvtTempC = a * 0.5f - 40f;
+        float v = a - 40f;
+        if (v > -41f && v < 250f) data.cvtTempC = v;
     }
 
     private void parseLockup(String r) {
-        // Lock-up is 3-state: 0%/50%/100% — map raw byte to nearest state
+        // MTH 000100020000 = raw / 2 (%)
         if (isError(r)) return;
         int a = m22byte(r, 0); if (a < 0) return;
-        if (a < 64)       data.lockupPct = 0f;
-        else if (a < 192) data.lockupPct = 50f;
-        else              data.lockupPct = 100f;
+        data.lockupPct = a / 2f;
     }
 
     private void parseTransfer(String r) {
+        // MTH 000100020000 = raw / 2 (%)
         if (isError(r)) return;
         int a = m22byte(r, 0); if (a < 0) return;
-        data.transferPct = a / 255f * 100f;
+        data.transferPct = a / 2f;
     }
 
     private void parseTurbineRpm(String r) {
+        // MTH 002000010000 = raw * 32 (RPM)
         if (isError(r)) return;
-        int v = m22word(r); if (v < 0) return;
-        data.turbineRpm = v / 4f;
+        int a = m22byte(r, 0); if (a < 0) return;
+        data.turbineRpm = a * 32f;
     }
 
     private void parsePrimaryRpm(String r) {
+        // MTH 000100010000 = raw word directly (RPM)
         if (isError(r)) return;
         int v = m22word(r); if (v < 0) return;
-        data.primaryRpm = v / 4f;
+        data.primaryRpm = v;
     }
 
     private void parseSecondaryRpm(String r) {
+        // MTH 000100010000 = raw word directly (RPM)
         if (isError(r)) return;
         int v = m22word(r); if (v < 0) return;
-        data.secondaryRpm = v / 4f;
+        data.secondaryRpm = v;
     }
 
     private void parseGearRatioAct(String r) {
+        // MTH 006400FF0000 = raw * 100 / 255
         if (isError(r)) return;
         int v = m22word(r); if (v < 0) return;
-        data.gearRatioAct = v / 1000f;
+        data.gearRatioAct = v * 100f / 255f;
     }
 
     private void parseGearRatioTgt(String r) {
+        // MTH 006400FF0000 = raw * 100 / 255
         if (isError(r)) return;
         int v = m22word(r); if (v < 0) return;
-        data.gearRatioTgt = v / 1000f;
+        data.gearRatioTgt = v * 100f / 255f;
     }
 
     // ── Utility ───────────────────────────────────────────────────
