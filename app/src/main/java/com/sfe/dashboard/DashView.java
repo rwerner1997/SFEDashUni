@@ -312,21 +312,56 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         if (obdManager != null)   { obdManager.stop(); }
     }
 
-    // ── Render thread ─────────────────────────────────────────────
+    // ── Render thread — Choreographer-driven 60fps ───────────────
+    // Choreographer syncs to display vsync so frames land cleanly.
+    // Rendering itself runs on a dedicated thread; Choreographer just
+    // signals when to draw.
 
-    private class RenderThread extends Thread {
+    private class RenderThread extends Thread
+            implements android.view.Choreographer.FrameCallback {
+
         private final SurfaceHolder holder;
         private volatile boolean running = false;
-        RenderThread(SurfaceHolder h) { holder = h; setDaemon(true); setName("Dash-Render"); }
-        void setRunning(boolean r) { running = r; }
+        private android.view.Choreographer choreographer;
+        private final Object frameLock = new Object();
+        private volatile boolean frameRequested = false;
+
+        RenderThread(SurfaceHolder h) {
+            holder = h; setDaemon(true); setName("Dash-Render");
+        }
+        void setRunning(boolean r) {
+            running = r;
+            if (!r && choreographer != null) {
+                choreographer.removeFrameCallback(this);
+            }
+        }
+
+        @Override public void doFrame(long frameTimeNanos) {
+            if (!running) return;
+            synchronized (frameLock) { frameRequested = true; frameLock.notifyAll(); }
+        }
 
         @Override public void run() {
-            final long TARGET_MS = 33; // ~30fps
+            android.os.Looper.prepare();
+            choreographer = android.view.Choreographer.getInstance();
+            choreographer.postFrameCallback(this);
+
             while (running) {
-                long frameStart = System.currentTimeMillis();
+                // Wait for vsync signal
+                synchronized (frameLock) {
+                    while (!frameRequested && running) {
+                        try { frameLock.wait(32); } catch (InterruptedException e) { break; }
+                    }
+                    frameRequested = false;
+                }
+                if (!running) break;
+
+                // Schedule next frame immediately
+                choreographer.postFrameCallback(this);
+
+                // Draw
                 Canvas c = null;
                 try {
-                    // Try hardware canvas first (GPU), fall back to software
                     try {
                         if (android.os.Build.VERSION.SDK_INT >= 26) {
                             c = holder.lockHardwareCanvas();
@@ -345,12 +380,6 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
                 } finally {
                     try { if (c != null) holder.unlockCanvasAndPost(c); }
                     catch (Exception ignored) {}
-                }
-                // Sleep only the remaining time in the frame budget
-                long elapsed = System.currentTimeMillis() - frameStart;
-                long sleep = TARGET_MS - elapsed;
-                if (sleep > 0) {
-                    try { Thread.sleep(sleep); } catch (Exception ignored) {}
                 }
             }
         }
