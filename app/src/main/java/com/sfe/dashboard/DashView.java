@@ -81,6 +81,13 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
     private final Paint textP  = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF  arcRect = new RectF();
 
+    // ── Pre-allocated reusable objects (avoid per-frame alloc) ───
+    private final android.graphics.Path sparkPath    = new android.graphics.Path();
+    private final android.graphics.Path alertTriPath = new android.graphics.Path();
+    // Scanline overlay bitmap — built once in surfaceChanged, drawn as single blit
+    private Bitmap scanlineBitmap;
+    private final Paint bitmapPaint = new Paint();
+
     // ── Fonts ────────────────────────────────────────────────────
     private Typeface monoFace;
     private Typeface orbFace;
@@ -285,6 +292,18 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         scaleF  = (float) w / LW;
         offsetX = 0f;
         offsetY = (hh - LH * scaleF) / 2f;
+        buildScanlineBitmap();
+    }
+
+    private void buildScanlineBitmap() {
+        // Build a 320x480 bitmap with alternating transparent/semi-black rows.
+        // Drawing this once per frame is a single GPU blit instead of 240 drawRect calls.
+        scanlineBitmap = Bitmap.createBitmap(LW, LH, Bitmap.Config.ARGB_8888);
+        Canvas bc = new Canvas(scanlineBitmap);
+        Paint sp = new Paint();
+        sp.setColor(0x11000000);
+        sp.setStyle(Paint.Style.FILL);
+        for (int y = 0; y < LH; y += 2) bc.drawRect(0, y, LW, y + 1, sp);
     }
 
     @Override public void surfaceDestroyed(SurfaceHolder h) {
@@ -304,7 +323,12 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             while (running) {
                 Canvas c = null;
                 try {
-                    c = holder.lockCanvas();
+                    // Hardware canvas (API 26+) — GPU accelerated, much smoother
+                    if (android.os.Build.VERSION.SDK_INT >= 26) {
+                        c = holder.lockHardwareCanvas();
+                    } else {
+                        c = holder.lockCanvas();
+                    }
                     if (c != null) {
                         c.save();
                         c.translate(offsetX, offsetY);
@@ -542,8 +566,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
     }
 
     private void scanlines(Canvas c) {
-        fillP.setColor(0x11000000); fillP.setStyle(Paint.Style.FILL);
-        for (int y = 0; y < LH; y += 2) c.drawRect(0, y, LW, y+1, fillP);
+        if (scanlineBitmap != null) c.drawBitmap(scanlineBitmap, 0, 0, bitmapPaint);
     }
 
     // ── ARC GAUGE ─────────────────────────────────────────────────
@@ -710,22 +733,29 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         fillRect(c, sx,sy,sw,sh, t.dim, 1f);
         PidDef pid = "gforce".equals(pg.type) ? pg.pids[0] : pg.pids[pg.heroIdx];
         int col = bandColor(pid, buf[79], t);
-        // Area fill column by column
+        int n = (int) sw;
+        // Area fill — single filled path instead of 300 individual rects
         fillP.setStyle(Paint.Style.FILL);
-        for (int i=0; i<(int)sw; i++) {
-            float v = buf[(int)(i*80/sw)];
-            float bh = nrm(pid,v)*sh;
-            if (bh > 0) { fillP.setColor(ac(col,0.16f)); c.drawRect(sx+i,sy+sh-bh,sx+i+1,sy+sh,fillP); }
+        fillP.setColor(ac(col, 0.16f));
+        sparkPath.rewind();
+        sparkPath.moveTo(sx, sy + sh);
+        for (int i = 0; i < n; i++) {
+            float v = buf[(int)(i * 80 / sw)];
+            float bh = nrm(pid, v) * sh;
+            sparkPath.lineTo(sx + i, sy + sh - bh);
         }
-        // Line
+        sparkPath.lineTo(sx + n, sy + sh);
+        sparkPath.close();
+        c.drawPath(sparkPath, fillP);
+        // Line — reuse same path, just stroke it
         strokeP.setColor(col); strokeP.setStyle(Paint.Style.STROKE); strokeP.setStrokeWidth(1f);
-        android.graphics.Path path = new android.graphics.Path();
-        for (int i=0; i<(int)sw; i++) {
-            float v = buf[(int)(i*80/sw)];
-            float y = sy+sh-nrm(pid,v)*sh-1;
-            if (i==0) path.moveTo(sx+i,y); else path.lineTo(sx+i,y);
+        sparkPath.rewind();
+        for (int i = 0; i < n; i++) {
+            float v = buf[(int)(i * 80 / sw)];
+            float y = sy + sh - nrm(pid, v) * sh - 1;
+            if (i == 0) sparkPath.moveTo(sx + i, y); else sparkPath.lineTo(sx + i, y);
         }
-        c.drawPath(path, strokeP);
+        c.drawPath(sparkPath, strokeP);
     }
 
     // ── PAGE HEADER ───────────────────────────────────────────────
@@ -1086,7 +1116,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         float ic_cx=LW/2f, ic_cy=168, ic_r=34;
         float[] tx={ic_cx, ic_cx+ic_r*0.87f, ic_cx-ic_r*0.87f};
         float[] ty={ic_cy-ic_r, ic_cy+ic_r*0.5f, ic_cy+ic_r*0.5f};
-        android.graphics.Path tri=new android.graphics.Path();
+        alertTriPath.rewind(); android.graphics.Path tri=alertTriPath;
         tri.moveTo(tx[0],ty[0]); tri.lineTo(tx[1],ty[1]); tri.lineTo(tx[2],ty[2]); tri.close();
         fillP.setColor(ac(col,0.12f)); fillP.setStyle(Paint.Style.FILL); c.drawPath(tri,fillP);
         strokeP.setColor(col); strokeP.setStyle(Paint.Style.STROKE); strokeP.setStrokeWidth(2f); c.drawPath(tri,strokeP);
