@@ -3,7 +3,10 @@ package com.sfe.dashboard;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Build;
 import android.util.Log;
 
@@ -14,6 +17,8 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -101,32 +106,95 @@ public class OBDManager {
     private BluetoothDevice findDevice() {
         BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
         if (adapter == null || !adapter.isEnabled()) return null;
+
+        // 1. Check already-bonded/paired devices first (instant)
         Set<BluetoothDevice> bonded = adapter.getBondedDevices();
         for (BluetoothDevice d : bonded) {
-            if (TARGET_DEVICE_NAME.equals(d.getName())) return d;
+            if (TARGET_DEVICE_NAME.equals(d.getName())) {
+                Log.i(TAG, "Found in bonded devices: " + d.getAddress());
+                return d;
+            }
         }
-        return null;
+
+        // 2. Not paired — run a discovery scan (up to 12 seconds)
+        // This is how Car Scanner finds it without system pairing.
+        Log.i(TAG, "Not in bonded list — starting discovery scan...");
+        data.btStatus = "SCANNING";
+        final BluetoothDevice[] found = {null};
+        final CountDownLatch latch = new CountDownLatch(1);
+
+        BroadcastReceiver receiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context context, Intent intent) {
+                String action = intent.getAction();
+                if (BluetoothDevice.ACTION_FOUND.equals(action)) {
+                    BluetoothDevice d = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                    if (d != null) {
+                        String name = d.getName();
+                        Log.d(TAG, "Discovered: " + name + " [" + d.getAddress() + "]");
+                        if (TARGET_DEVICE_NAME.equals(name)) {
+                            found[0] = d;
+                            latch.countDown();
+                        }
+                    }
+                } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
+                    latch.countDown();
+                }
+            }
+        };
+
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(BluetoothDevice.ACTION_FOUND);
+        filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
+        ctx.registerReceiver(receiver, filter);
+
+        try {
+            adapter.startDiscovery();
+            latch.await(12, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            adapter.cancelDiscovery();
+            try { ctx.unregisterReceiver(receiver); } catch (Exception ignored) {}
+        }
+
+        if (found[0] != null) {
+            Log.i(TAG, "Found via scan: " + found[0].getAddress());
+        } else {
+            Log.w(TAG, "Device not found in scan");
+        }
+        return found[0];
     }
 
     // ── Socket connection ─────────────────────────────────────────
 
     private void connectToDevice(BluetoothDevice device) throws IOException {
-        // On some Android versions, createInsecureRfcommSocketToServiceRecord avoids
-        // PIN re-prompt for already-paired devices
+        BluetoothAdapter.getDefaultAdapter().cancelDiscovery(); // must cancel before connect
+
+        // Try insecure first — works without system pairing (same as Car Scanner)
         try {
-            socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
-        } catch (IOException e) {
-            // Fallback to hidden API method
+            socket = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID);
+            socket.connect();
+        } catch (IOException e1) {
+            Log.d(TAG, "Insecure connect failed, trying secure: " + e1.getMessage());
+            try { socket.close(); } catch (Exception ignored) {}
             try {
-                socket = (BluetoothSocket) device.getClass()
-                        .getMethod("createRfcommSocket", int.class)
-                        .invoke(device, 1);
-            } catch (Exception ex) {
-                throw new IOException("Cannot create RFCOMM socket", ex);
+                // Secure (paired) socket
+                socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
+                socket.connect();
+            } catch (IOException e2) {
+                Log.d(TAG, "Secure connect failed, trying reflection: " + e2.getMessage());
+                try { socket.close(); } catch (Exception ignored) {}
+                // Last resort — hidden API direct channel 1
+                try {
+                    socket = (BluetoothSocket) device.getClass()
+                            .getMethod("createRfcommSocket", int.class)
+                            .invoke(device, 1);
+                    socket.connect();
+                } catch (Exception e3) {
+                    throw new IOException("All connect methods failed", e3);
+                }
             }
         }
-        BluetoothAdapter.getDefaultAdapter().cancelDiscovery();
-        socket.connect();
         inStream  = socket.getInputStream();
         outStream = socket.getOutputStream();
     }
@@ -454,73 +522,4 @@ public class OBDManager {
         data.battTempC = a - 40f;
     }
 
-    private void parseAltDuty(String r) {
-        if (isError(r)) return;
-        int a = m22byte(r, 0); if (a < 0) return;
-        data.altDutyPct = a / 255f * 100f;
-    }
-
-    private void parseFuelPump(String r) {
-        if (isError(r)) return;
-        int a = m22byte(r, 0); if (a < 0) return;
-        data.fuelPumpPct = a / 255f * 100f;
-    }
-
-    // ── Mode 22 TCU parsers ────────────────────────────────────────
-
-    private void parseCVTTemp(String r) {
-        if (isError(r)) return;
-        int a = m22byte(r, 0); if (a < 0) return;
-        data.cvtTempC = a * 0.5f - 40f;
-    }
-
-    private void parseLockup(String r) {
-        if (isError(r)) return;
-        int a = m22byte(r, 0); if (a < 0) return;
-        data.lockupPct = a / 255f * 100f;
-    }
-
-    private void parseTransfer(String r) {
-        if (isError(r)) return;
-        int a = m22byte(r, 0); if (a < 0) return;
-        data.transferPct = a / 255f * 100f;
-    }
-
-    private void parseTurbineRpm(String r) {
-        if (isError(r)) return;
-        int v = m22word(r); if (v < 0) return;
-        data.turbineRpm = v / 4f;
-    }
-
-    private void parsePrimaryRpm(String r) {
-        if (isError(r)) return;
-        int v = m22word(r); if (v < 0) return;
-        data.primaryRpm = v / 4f;
-    }
-
-    private void parseSecondaryRpm(String r) {
-        if (isError(r)) return;
-        int v = m22word(r); if (v < 0) return;
-        data.secondaryRpm = v / 4f;
-    }
-
-    private void parseGearRatioAct(String r) {
-        if (isError(r)) return;
-        int v = m22word(r); if (v < 0) return;
-        data.gearRatioAct = v / 1000f;
-    }
-
-    private void parseGearRatioTgt(String r) {
-        if (isError(r)) return;
-        int v = m22word(r); if (v < 0) return;
-        data.gearRatioTgt = v / 1000f;
-    }
-
-    // ── Utility ───────────────────────────────────────────────────
-
-    private void sleep(long ms) {
-        try { Thread.sleep(ms); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-    }
-
-    public boolean isConnected() { return data.connected; }
-}
+    private void pars
