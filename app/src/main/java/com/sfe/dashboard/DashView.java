@@ -403,9 +403,13 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         if (engLastMs == 0) { engLastMs = now; return; }
         float dt = (now - engLastMs) / 1000f;
         engLastMs = now;
-        dt = Math.min(dt, 0.050f); // cap at 50ms — prevents jump after GC pause
+        dt = Math.min(dt, 0.050f);
         float rpm = DashData.get().rpm;
-        // Smooth RPM changes so animation doesn't jerk when OBD value updates
+        // Stop animation when engine is not running (ignition on, engine off)
+        if (rpm < 300f) {
+            engRpmSmooth = 0f;
+            return;
+        }
         engRpmSmooth += (rpm - engRpmSmooth) * Math.min(1f, dt * 4f);
         engAngle += engRpmSmooth / 60f * (float)(Math.PI * 2) * dt;
     }
@@ -450,7 +454,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
     private float[][] getPageVals(DashData d) {
         return new float[][]{
             {d.rpm, d.loadPct, d.throttlePct, d.timingDeg},
-            {d.coolantF(), d.oilTempF(), d.cvtTempF(), 0},
+            {d.coolantF(), d.oilTempF(), d.cvtTempF(), d.catTempF()},
             {d.boostPsi(), d.mapPsi(), d.mafGs, d.targetMapPsi()},
             {d.cvtTempF(), d.lockupPct, d.cvtSlipPct(), d.transferPct},
             {d.rough1, d.rough2, d.rough3, d.rough4},
