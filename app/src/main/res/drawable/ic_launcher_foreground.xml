@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    SFE logo icon — programmatic recreation of the DashView boot-screen logo.
+
+    Design: "SFE" in white block letters (Orbitron-style geometry), centred in
+    the 108×108 adaptive-icon foreground canvas (safe zone 72×72, 18dp inset).
+    Brand stripes — blue #3878E8 and purple #7830C0 — cross the full width at
+    ~50 % and ~58 % letter height, exactly as in drawSFELogo().
+    Speed-line cuts (bg-colour #0D0D1A, 3dp every 9dp) slice through letters
+    and bands alike, giving the same horizontal-stripe pixel-art character.
+
+    Letter geometry (22dp wide, 36dp tall each; 2dp gaps):
+      S  x=17–39   F  x=41–63   E  x=65–87    centred at x=52
+      All letters y=36–72, centred at y=54.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- ══ S  (x 17–39, y 36–72) ══════════════════════════════════ -->
+    <!--   Top bar, left-top side, mid bar, right-bot side, bot bar   -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+            M17,36 H39 V40 H17 Z
+            M17,40 H21 V52 H17 Z
+            M17,52 H39 V56 H17 Z
+            M35,56 H39 V68 H35 Z
+            M17,68 H39 V72 H17 Z"/>
+
+    <!-- ══ F  (x 41–63, y 36–72) ══════════════════════════════════ -->
+    <!--   Left vertical, top bar, mid bar (shorter – no right cap)   -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+            M41,36 H45 V72 H41 Z
+            M45,36 H63 V40 H45 Z
+            M45,54 H60 V58 H45 Z"/>
+
+    <!-- ══ E  (x 65–87, y 36–72) ══════════════════════════════════ -->
+    <!--   Left vertical, top bar, mid bar (shorter), bottom bar      -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+            M65,36 H69 V72 H65 Z
+            M69,36 H87 V40 H69 Z
+            M69,54 H84 V58 H69 Z
+            M69,68 H87 V72 H69 Z"/>
+
+    <!-- ══ Brand stripes (full canvas width) ══════════════════════ -->
+    <!-- Blue at ~50 % letter height (y 52–58) -->
+    <path
+        android:fillColor="#3878E8"
+        android:pathData="M0,52 H108 V58 H0 Z"/>
+    <!-- Purple at ~58 % letter height (y 58–64) -->
+    <path
+        android:fillColor="#7830C0"
+        android:pathData="M0,58 H108 V64 H0 Z"/>
+
+    <!-- ══ Speed-line cuts (bg colour, 3dp wide, every 9dp) ════════ -->
+    <!-- Slice through letters AND bands — same effect as drawSFELogo -->
+    <path
+        android:fillColor="#0D0D1A"
+        android:pathData="
+            M0,36 H108 V39 H0 Z
+            M0,45 H108 V48 H0 Z
+            M0,54 H108 V57 H0 Z
+            M0,63 H108 V66 H0 Z
+            M0,69 H108 V72 H0 Z"/>
+
+</vector>
