@@ -12,9 +12,10 @@ import android.view.SurfaceView;
  * flat fills, 1-px text shadow, concentric-shape glow (no shadowBlur).
  * Coordinates are in logical 320×480 space, scaled to fill the view.
  *
- * Page map (11 pages, matches firmware):
+ * Page map (13 pages):
  *  0 ENGINE  1 TEMPS  2 BOOST  3 CVT  4 ROUGHNESS  5 FUEL
  *  6 GFORCE  7 TIMING  8 IGNITION  9 AVCS  10 SESSION
+ * 11 CVT PULLEYS  12 VVT/ACTUATORS
  */
 public class DashView extends SurfaceView implements SurfaceHolder.Callback {
 
@@ -70,7 +71,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
     };
 
     // ── History buffers ──────────────────────────────────────────
-    private final float[][] hist = new float[11][80];
+    private final float[][] hist = new float[13][80];
 
     // ── Render thread ────────────────────────────────────────────
     private RenderThread renderThread;
@@ -222,6 +223,18 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
                 pid("MAF","G/S",0,200,1,     fl(0),fl(9e9f),cs("purple")),
                 pid("HP","HP",0,250,0,       fl(0),fl(9e9f),cs("accent")),
                 pid("CAT","°F",300,1800,0,   fl(0),fl(9e9f),cs("orange"))),
+            // ── Page 11: CVT PULLEYS ─────────────────────────────────
+            new PageDef("CVT PULLEYS","GEAR RATIO · SPEEDS","arc",0,
+                pid("GEAR RATIO","x:1",0f,6f,2,  fl(0,1.5f,3.5f,5f),fl(1.5f,3.5f,5f,9e9f),cs("green","cyan","yellow","red")),
+                pid("RATIO TARGET","x:1",0f,6f,2, fl(0,1.5f,3.5f,5f),fl(1.5f,3.5f,5f,9e9f),cs("green","cyan","yellow","red")),
+                pid("PRIMARY RPM","RPM",0,8000,0, fl(0,800,5000,7000),fl(800,5000,7000,9e9f),cs("blue","green","yellow","red")),
+                pid("SECOND RPM","RPM",0,8000,0,  fl(0,800,5000,7000),fl(800,5000,7000,9e9f),cs("blue","green","yellow","red"))),
+            // ── Page 12: VVT / ACTUATORS ─────────────────────────────
+            new PageDef("VVT / ACT","CAM TIMING · ACTUATORS","arc",0,
+                pid("VVT ADV L","°",0,50,1, fl(0,5,20,40),fl(5,20,40,9e9f),cs("blue","cyan","green","yellow")),
+                pid("VVT ADV R","°",0,50,1, fl(0,5,20,40),fl(5,20,40,9e9f),cs("blue","cyan","green","yellow")),
+                pid("THROT MOTOR","%",-100,100,1, fl(-100,-10,10),fl(-10,10,9e9f),cs("red","green","yellow")),
+                pid("RAD FAN","%",0,100,1,  fl(0,20,60,85),fl(20,60,85,9e9f),cs("blue","cyan","green","red"))),
         };
     }
     private static PidDef pid(String l,String u,float mn,float mx,int dec,float[]blo,float[]bhi,String[]bc){
@@ -490,6 +503,8 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             {d.ocvIntakeL, d.ocvIntakeR, d.ocvExhL, d.ocvExhR},
             {d.peakBoostPsi, d.peakRpm, d.peakTimingDeg, d.peakLoadPct,
              d.peakSpeedMph, d.worstKnockCorr, d.peakMafGs, d.peakEstHp, d.peakCatTempF},
+            {d.gearRatioAct, d.gearRatioTgt, d.primaryRpm, d.secondaryRpm}, // page 11
+            {d.vvtAngleL, d.vvtAngleR, d.throttleMotorPct, d.radFanPct},    // page 12
         };
     }
 
@@ -1338,48 +1353,119 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
 
     // ── BOOT SCREEN ───────────────────────────────────────────────
 
+    /** SFE pixel-art logo with speed-line effect.
+     *  Draws "SFE" in large italic Orbitron, then overlays:
+     *   • bg-colour horizontal cuts every 4 px  (speed-line / stripe effect)
+     *   • blue  band at ~50% letter height       (brand colour)
+     *   • purple band at ~58% letter height      (brand colour)
+     *  textP.setAntiAlias(false) gives a crisp, pixel-art quality.
+     *  No bitmap allocation — purely programmatic Canvas ops. */
+    private void drawSFELogo(Canvas c, Theme t) {
+        final float baseline = 63f;   // text baseline Y
+        final float sz       = 68f;   // Orbitron size — fills ~200px at this logical scale
+
+        // Approximate letter bounds (Orbitron cap height ≈ 0.73 em above baseline)
+        final float top    = baseline - sz * 0.78f;   //  ~10 px from accent bar
+        final float bot    = baseline + sz * 0.08f;   // slightly below baseline
+
+        final float logoH  = bot - top;               // ~55 px
+        // Brand stripes: blue at 50%, purple at 58% of letter height
+        final float blueY  = top + logoH * 0.50f;
+        final float purpY  = top + logoH * 0.58f;
+        final float bandH  = Math.max(3.5f, logoH * 0.075f); // ~4 px stripe height
+
+        // ── 1. Draw "SFE" with italic canvas skew ──────────────────
+        textP.setAntiAlias(false);        // pixel-art crispness, minimal GPU overdraw
+        c.save();
+        // skew(-k,0): horizontal shear → italic slant (k=0.20 ≈ 11° lean)
+        c.skew(-0.20f, 0f);
+        sf(sz, true, true);
+        textP.setColor(t.white); textP.setAlpha(255);
+        textP.setTextAlign(Paint.Align.CENTER);
+        // When canvas is skewed by -k, a point (x,y) renders at screen (x - k*y, y).
+        // To keep text centred on LW/2, shift draw X right by k*baseline.
+        c.drawText("SFE", LW / 2f + 0.20f * baseline, baseline, textP);
+        c.restore();
+        textP.setAntiAlias(true);         // restore for all other UI text
+
+        // ── 2. Blue + purple brand stripes (drawn before cuts) ─────
+        // Hardcoded brand colours to match the SFE logo regardless of theme
+        fillRect(c, 0, blueY, LW, bandH, 0xFF3878E8, 1f);   // SFE blue
+        fillRect(c, 0, purpY, LW, bandH, 0xFF7830C0, 1f);   // SFE purple
+
+        // ── 3. Speed-line cuts (bg-coloured stripes, 2px every 4px) ─
+        // Cover the entire logo height; bg colour = invisible outside letters,
+        // cuts through letter body and coloured bands alike.
+        for (float y = top; y < bot + 4f; y += 4f) {
+            fillRect(c, 0, y, LW, 2f, t.bg, 1f);
+        }
+    }
+
     private void drawBoot(Canvas c, Theme t) {
         c.drawColor(t.bg);
-        long now=System.currentTimeMillis();
-        fillRect(c, 0,0,LW,3, t.accent, 1f);
-        sf(16,true,true); textP.setTextAlign(Paint.Align.CENTER);
-        textShadow(c, "SIK FUK ENTERPRISES", LW/2f, 44, t.bg, t.white);
-        sf(11,true,true); textP.setColor(t.accent); textP.setAlpha(255); c.drawText("AUTOMOTIVE DIVISION",LW/2f,60,textP);
-        sf(8,true,false); textP.setColor(ac(t.white,178)); c.drawText("ENGINE MONITOR  v4.0",LW/2f,76,textP);
-        sf(7,false,false); textP.setColor(ac(t.accent,178)); c.drawText("FA20DIT · SUBARU FORESTER XT · OBD2/UDS",LW/2f,89,textP);
-        fillRect(c, 20,97,LW-40,1, t.accent, 0.4f);
-        String[][] hw={{"MCU","ESP32 / ANDROID BT"},{"OBD","VEEPEAK OBDII · SPP"},{"ECU","AT SH 7E0 · UDS MODE 22"},{"TCU","AT SH 7E1 · CVT TR690"}};
+        long now = System.currentTimeMillis();
+
+        // ── Top accent bar ────────────────────────────────────────
+        fillRect(c, 0, 0, LW, 3, t.accent, 1f);
+
+        // ── SFE pixel-art logo (y ≈ 3 → 68) ─────────────────────
+        drawSFELogo(c, t);
+
+        // ── Subtitle text ─────────────────────────────────────────
+        sf(8,true,true);  textP.setColor(t.accent); textP.setAlpha(255); textP.setTextAlign(Paint.Align.CENTER);
+        c.drawText("AUTOMOTIVE DIVISION", LW/2f, 76, textP);
+        sf(7,true,false); textP.setColor(ac(t.white,178)); c.drawText("ENGINE MONITOR  v4.0", LW/2f, 87, textP);
+        sf(6,false,false); textP.setColor(ac(t.accent,160)); c.drawText("FA20DIT · SUBARU FORESTER XT · OBD2/UDS", LW/2f, 97, textP);
+
+        // ── Divider ───────────────────────────────────────────────
+        fillRect(c, 20, 102, LW-40, 1, t.accent, 0.4f);
+
+        // ── Hardware spec table ───────────────────────────────────
+        String[][] hw={{"MCU","ESP32 / ANDROID BT"},{"OBD","VEEPEAK OBDII · SPP"},
+                       {"ECU","AT SH 7E0 · UDS MODE 22"},{"TCU","AT SH 7E1 · CVT TR690"}};
         for(int i=0;i<hw.length;i++){
-            float y=105+i*17;
-            sf(7,true,false); textP.setColor(t.accent); textP.setAlpha(255); textP.setTextAlign(Paint.Align.LEFT); c.drawText(hw[i][0],14,y,textP);
-            fillRect(c, 42,y-10,1,12, t.border, 0.45f);
-            sf(7,false,false); textP.setColor(ac(t.white,210)); c.drawText(hw[i][1],48,y,textP);
+            float y=111+i*15;
+            sf(7,true,false); textP.setColor(t.accent); textP.setAlpha(255); textP.setTextAlign(Paint.Align.LEFT);
+            c.drawText(hw[i][0], 14, y, textP);
+            fillRect(c, 42, y-10, 1, 12, t.border, 0.45f);
+            sf(7,false,false); textP.setColor(ac(t.white,210));
+            c.drawText(hw[i][1], 48, y, textP);
         }
-        fillRect(c, 20,175,LW-40,1, t.border, 0.4f);
-        int n=Math.min(bootLinesShown, BOOT_CHECKS.length);
+
+        // ── Boot check list ───────────────────────────────────────
+        fillRect(c, 20, 173, LW-40, 1, t.border, 0.4f);
+        int n = Math.min(bootLinesShown, BOOT_CHECKS.length);
         for(int i=0;i<n;i++){
-            float y=185+i*17;
-            boolean isPend=(i==n-1)&&!bootDone;
-            sf(8,true,false); textP.setColor(isPend?t.yellow:t.green); textP.setTextAlign(Paint.Align.LEFT); c.drawText(isPend?"[...]":"[ OK]",14,y,textP);
-            sf(8,false,false); textP.setColor(isPend?ac(t.white,230):ac(t.white,140)); c.drawText(BOOT_CHECKS[i],62,y,textP);
+            float y = 183 + i*15;
+            boolean isPend = (i==n-1) && !bootDone;
+            sf(7,true,false);  textP.setColor(isPend?t.yellow:t.green); textP.setTextAlign(Paint.Align.LEFT);
+            c.drawText(isPend?"[...]":"[ OK]", 14, y, textP);
+            sf(7,false,false); textP.setColor(isPend?ac(t.white,230):ac(t.white,130));
+            c.drawText(BOOT_CHECKS[i], 60, y, textP);
         }
-        float prog=bootDone?1f:(float)n/BOOT_CHECKS.length;
-        int pbY=LH-60,pbX=14,pbW=LW-28,pbH=8;
-        fillRect(c, pbX,pbY,pbW,pbH, t.bg, 1f);
-        fillRect(c, pbX,pbY,Math.max(4,(int)(prog*pbW)),pbH, bootDone?t.green:t.accent, 1f);
-        strokeRect(c, pbX,pbY,pbW,pbH, t.border, 0.55f, 1f);
+
+        // ── Progress bar ──────────────────────────────────────────
+        float prog = bootDone ? 1f : (float)n / BOOT_CHECKS.length;
+        int pbY=LH-58, pbX=14, pbW=LW-28, pbH=8;
+        fillRect(c, pbX, pbY, pbW, pbH, t.bg, 1f);
+        fillRect(c, pbX, pbY, Math.max(4,(int)(prog*pbW)), pbH, bootDone?t.green:t.accent, 1f);
+        strokeRect(c, pbX, pbY, pbW, pbH, t.border, 0.55f, 1f);
         sf(8,true,false); textP.setColor(bootDone?t.green:t.white); textP.setAlpha(255); textP.setTextAlign(Paint.Align.RIGHT);
         c.drawText(Math.round(prog*100)+"%", LW-14, pbY-4, textP);
+
+        // ── Status line ───────────────────────────────────────────
         if(bootDone){
-            float bp=0.5f+0.5f*(float)Math.abs(Math.sin(now*0.004));
+            float bp = 0.5f+0.5f*(float)Math.abs(Math.sin(now*0.004));
             sf(10,true,false); textP.setColor(ac(t.green,(int)(bp*255))); textP.setTextAlign(Paint.Align.CENTER);
             c.drawText("> SYSTEM READY <", LW/2f, LH-22, textP);
-            sf(7,false,false); textP.setColor(ac(t.accent,140)); c.drawText("ENTERING DASHBOARD...",LW/2f,LH-8,textP);
+            sf(7,false,false); textP.setColor(ac(t.accent,140)); c.drawText("ENTERING DASHBOARD...", LW/2f, LH-8, textP);
         } else {
             sf(7,false,false); textP.setColor(ac(t.label,90)); textP.setTextAlign(Paint.Align.CENTER);
             c.drawText("INITIALIZING SYSTEMS", LW/2f, LH-14, textP);
         }
-        fillRect(c, 0,LH-3,LW,3, t.accent, 1f);
+
+        // ── Bottom accent bar ─────────────────────────────────────
+        fillRect(c, 0, LH-3, LW, 3, t.accent, 1f);
         if(t.scan) scanlines(c);
     }
 

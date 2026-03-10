@@ -48,6 +48,19 @@ public class DashData {
     public volatile float altDutyPct    = 70f;
     public volatile float fuelPumpPct   = 50f;
 
+    // ── MODE 22 ECU — additional ScanGauge PIDs ───────────────────
+    public volatile float injPulseMs       = 0f;   // 2210A3 — fuel injection #1 pulse width
+    public volatile float radFanPct        = 0f;   // 2210E3 — radiator fan control (%)
+    public volatile float vvtAngleR        = 0f;   // 221099 — VVT advance angle right (°)
+    public volatile float vvtAngleL        = 0f;   // 2210B9 — VVT advance angle left  (°)
+    public volatile float throttleMotorPct = 0f;   // 22105F — throttle motor duty (%)
+    public volatile float cpcValvePct      = 0f;   // 2210CB — CPC valve duty (%)
+    public volatile float osvLPct          = 0f;   // 2210E5 — OSV duty left  (%)
+    public volatile float osvRPct          = 0f;   // 2210C5 — OSV duty right (%)
+    public volatile int   fuelTankPressKpa = 0;    // 22108F — fuel tank air pressure (raw word)
+    public volatile int   egrSteps         = 0;    // 2210B1 — number of EGR steps
+    public volatile float fuelLevelPct     = 50f;  // 012F   — fuel level (%)
+
     // ── MODE 22 TCU (AT SH 7E1) ──────────────────────────────────
     public volatile float cvtTempC      = 27f;
     public volatile float lockupPct     = 0f;
@@ -77,6 +90,9 @@ public class DashData {
     public float boostPsi() {
         return (mapKpa - baroKpa) / 6.89476f - 0.85f;
     }
+
+    /** Throttle motor duty centred at 0 (range -100 to +100 %) */
+    public float throttleMotorCentred() { return throttleMotorPct; }
 
     /** CVT belt slip % — turbine vs secondary pulley */
     public float cvtSlipPct() {
@@ -118,7 +134,8 @@ public class DashData {
         if (mafGs > peakMafGs)        peakMafGs      = mafGs;
         float hp = estHp();
         if (hp > peakEstHp)           peakEstHp      = hp;
-        // catTemp not polled yet — placeholder 0
+        float ct = catTempF();
+        if (ct > peakCatTempF)        peakCatTempF   = ct;
     }
 
     public void resetPeaks() {

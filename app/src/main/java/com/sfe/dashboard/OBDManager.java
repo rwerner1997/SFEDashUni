@@ -34,8 +34,8 @@ public class OBDManager {
     private static final UUID  SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
     private static final String TARGET_DEVICE_NAME = "OBDII";
 
-    private static final int CMD_TIMEOUT_MS   = 1200; // per-command timeout (normal)
-    private static final int CMD_TIMEOUT_SLOW = 800;  // for slow/optional Mode 22 PIDs
+    private static final int CMD_TIMEOUT_MS   = 250;  // per-command timeout — BT RTT ~50-100ms, 2.5× headroom
+    private static final int CMD_TIMEOUT_SLOW = 350;  // for Mode 22 PIDs — allow one retry cycle
     private static final int CONNECT_RETRY_S  = 5;    // seconds between reconnect attempts
 
     private final Context    ctx;
@@ -219,8 +219,8 @@ public class OBDManager {
         sendCmd("ATH0");            // headers off  ← we'll get "62 XX XX [data]" format
         sendCmd("ATS0");            // spaces off   ← response bytes with no spaces
         sendCmd("ATSP0");           // auto-detect protocol
-        sendCmd("ATST32");          // timeout 50ms per try (0x32 = 50 * 4ms = 200ms)
-        sendCmd("ATAT1");           // adaptive timing mode 1
+        sendCmd("ATST0A");          // timeout 10 * 4ms = 40ms per try (ELM side); ATAT adjusts down further
+        sendCmd("ATAT2");           // adaptive timing mode 2 — most aggressive, minimises dead-wait
         sendCmd("ATAL");            // allow long messages (multi-frame Mode 22 responses)
         // Verify comms with a simple Mode 01 ping
         String resp = sendCmd("0100");
@@ -289,6 +289,7 @@ public class OBDManager {
                 // Switch back to 7DF for Mode 01 PIDs
                 if (!"7DF".equals(currentHeader)) { sendCmd("ATSH7DF"); currentHeader = "7DF"; }
                 parseBaro(sendCmd("0133"));
+                parseFuelLevel(sendCmd("012F"));   // fuel tank level (Mode 01)
                 parseBattery(sendCmd("ATRV"));
 
                 sendCmd("ATSH7E0"); currentHeader = "7E0";
@@ -325,6 +326,33 @@ public class OBDManager {
 
                 sendCmd("ATSH7E0"); currentHeader = "7E0";
                 parseCvtMode(sendCmdTimeout("221299", CMD_TIMEOUT_SLOW));
+            }
+
+            // ════════════════════════════════════════════════════
+            // TIER 3c — ECU VVT + actuators: every 10th loop, offset 2
+            // ScanGauge PIDs: VVT advance angles, throttle motor, fan
+            // ════════════════════════════════════════════════════
+            if (loopCount % 10 == 2) {
+                if (!"7E0".equals(currentHeader)) { sendCmd("ATSH7E0"); currentHeader = "7E0"; }
+                parseVvtAngleR(sendCmdTimeout("221099", CMD_TIMEOUT_SLOW));
+                parseVvtAngleL(sendCmdTimeout("2210B9", CMD_TIMEOUT_SLOW));
+                parseRadFan(sendCmdTimeout("2210E3", CMD_TIMEOUT_SLOW));
+                parseThrottleMotor(sendCmdTimeout("22105F", CMD_TIMEOUT_SLOW));
+            }
+
+            // ════════════════════════════════════════════════════
+            // TIER 3d — ECU accessories: every 10th loop, offset 7
+            // ScanGauge PIDs: CPC, OSV valves, fuel injection PW,
+            // fuel tank pressure, EGR steps
+            // ════════════════════════════════════════════════════
+            if (loopCount % 10 == 7) {
+                if (!"7E0".equals(currentHeader)) { sendCmd("ATSH7E0"); currentHeader = "7E0"; }
+                parseInjPulse(sendCmdTimeout("2210A3", CMD_TIMEOUT_SLOW));
+                parseCpcValve(sendCmdTimeout("2210CB", CMD_TIMEOUT_SLOW));
+                parseOsvL(sendCmdTimeout("2210E5", CMD_TIMEOUT_SLOW));
+                parseOsvR(sendCmdTimeout("2210C5", CMD_TIMEOUT_SLOW));
+                parseFuelTankPress(sendCmdTimeout("22108F", CMD_TIMEOUT_SLOW));
+                parseEgrSteps(sendCmdTimeout("2210B1", CMD_TIMEOUT_SLOW));
             }
 
             data.updatePeaks();
@@ -365,24 +393,29 @@ public class OBDManager {
         if (outStream != null) { outStream.write(s.getBytes()); outStream.flush(); }
     }
 
-    /** Read bytes until '>' prompt or timeout, return trimmed response */
+    /** Read bytes until '>' prompt or timeout.
+     *  Reads up to 64 bytes at a time (vs single-byte) to drain BT buffer quickly.
+     *  Returns trimmed, CR/LF-stripped, uppercase response. */
     private String readUntilPrompt(int timeoutMs) throws IOException {
-        StringBuilder sb = new StringBuilder();
+        StringBuilder sb = new StringBuilder(64);
         long deadline = System.currentTimeMillis() + timeoutMs;
-        byte[] buf = new byte[1];
+        byte[] buf = new byte[64];
         while (System.currentTimeMillis() < deadline) {
-            if (inStream.available() > 0) {
-                int n = inStream.read(buf, 0, 1);
-                if (n > 0) {
-                    char c = (char) buf[0];
-                    if (c == '>') break;
-                    sb.append(c);
+            int avail = inStream.available();
+            if (avail > 0) {
+                int n = inStream.read(buf, 0, Math.min(avail, buf.length));
+                for (int i = 0; i < n; i++) {
+                    char ch = (char)(buf[i] & 0xFF);
+                    if (ch == '>') {
+                        return sb.toString().toUpperCase().trim();
+                    }
+                    if (ch != '\r' && ch != '\n') sb.append(ch);
                 }
             } else {
-                sleep(5);
+                sleep(2);  // 2ms vs 5ms — shorter busy-wait reduces per-command latency
             }
         }
-        return sb.toString().trim().replace("\r", "").replace("\n", "").toUpperCase();
+        return sb.toString().toUpperCase().trim();
     }
 
     // ── PID Parsers ───────────────────────────────────────────────
@@ -682,6 +715,98 @@ public class OBDManager {
         if (isError(r)) return;
         int a = m22byte(r, 0); if (a < 0) return;
         data.cvtModeRaw = a;
+    }
+
+    // ── Mode 22 ECU — ScanGauge extended parsers ──────────────────
+
+    private void parseVvtAngleR(String r) {
+        // 221099 — VVT Advance Angle Right (degrees)
+        // ScanGauge MTH 000100020000: raw / 2 = degrees
+        if (isError(r)) return;
+        int a = m22byte(r, 0); if (a < 0) return;
+        data.vvtAngleR = a / 2f;
+    }
+
+    private void parseVvtAngleL(String r) {
+        // 2210B9 — VVT Advance Angle Left (degrees)
+        // ScanGauge MTH 000100020000: raw / 2 = degrees
+        if (isError(r)) return;
+        int a = m22byte(r, 0); if (a < 0) return;
+        data.vvtAngleL = a / 2f;
+    }
+
+    private void parseRadFan(String r) {
+        // 2210E3 — Radiator Fan Control (%)
+        // ScanGauge MTH 000100010000: raw directly (0-255); rescale to 0-100%
+        if (isError(r)) return;
+        int a = m22byte(r, 0); if (a < 0) return;
+        data.radFanPct = a / 2.55f;
+    }
+
+    private void parseThrottleMotor(String r) {
+        // 22105F — Throttle Motor Duty (%)
+        // ScanGauge MTH 0062007DFF9C: (raw * 98 / 125) - 100  → −100 to +100%
+        if (isError(r)) return;
+        int a = m22byte(r, 0); if (a < 0) return;
+        data.throttleMotorPct = (a * 98f / 125f) - 100f;
+    }
+
+    private void parseInjPulse(String r) {
+        // 2210A3 — Fuel Injection #1 Pulse Width
+        // ScanGauge MTH 004000190000: raw * 64 / 25 (in ECU-native 0.01ms units)
+        // Divide by 100 to get ms. Typical idle: ~2-4ms.
+        if (isError(r)) return;
+        int a = m22byte(r, 0); if (a < 0) return;
+        data.injPulseMs = (a * 64f / 25f) / 100f;
+    }
+
+    private void parseCpcValve(String r) {
+        // 2210CB — CPC Valve Duty Ratio (%)
+        // ScanGauge MTH 006400FF0000: raw * 100 / 255
+        if (isError(r)) return;
+        int a = m22byte(r, 0); if (a < 0) return;
+        data.cpcValvePct = a * 100f / 255f;
+    }
+
+    private void parseOsvL(String r) {
+        // 2210E5 — OSV Duty Left (%)
+        // ScanGauge MTH 006400FF0000: raw * 100 / 255
+        if (isError(r)) return;
+        int a = m22byte(r, 0); if (a < 0) return;
+        data.osvLPct = a * 100f / 255f;
+    }
+
+    private void parseOsvR(String r) {
+        // 2210C5 — OSV Duty Right (%)
+        // ScanGauge MTH 006400FF0000: raw * 100 / 255
+        if (isError(r)) return;
+        int a = m22byte(r, 0); if (a < 0) return;
+        data.osvRPct = a * 100f / 255f;
+    }
+
+    private void parseFuelTankPress(String r) {
+        // 22108F — Fuel Tank Air Pressure (raw 2-byte word)
+        // ScanGauge MTH 000100010000 (word, 1:1 scale); unit labelled MPa/kPa — store raw
+        if (isError(r)) return;
+        int v = m22word(r); if (v < 0) return;
+        data.fuelTankPressKpa = v;
+    }
+
+    private void parseEgrSteps(String r) {
+        // 2210B1 — Number of EGR Steps
+        // ScanGauge MTH 000100010000: raw byte directly
+        if (isError(r)) return;
+        int a = m22byte(r, 0); if (a < 0) return;
+        data.egrSteps = a;
+    }
+
+    // ── Mode 01 — additional parsers ─────────────────────────────
+
+    private void parseFuelLevel(String r) {
+        // PID 012F — Fuel Level Input (0-255 raw → 0-100%)
+        r = strip(r); if (isError(r) || r.length() < 6) return;
+        int a = byteAt(r, 2); if (a < 0) return;
+        data.fuelLevelPct = a / 2.55f;
     }
 
     // ── Utility ───────────────────────────────────────────────────
