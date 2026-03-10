@@ -35,7 +35,7 @@ public class OBDManager {
     private static final String TARGET_DEVICE_NAME = "OBDII";
 
     private static final int CMD_TIMEOUT_MS   = 1200; // per-command timeout (normal)
-    private static final int CMD_TIMEOUT_SLOW = 600;  // for slow/optional Mode 22 PIDs
+    private static final int CMD_TIMEOUT_SLOW = 800;  // for slow/optional Mode 22 PIDs
     private static final int CONNECT_RETRY_S  = 5;    // seconds between reconnect attempts
 
     private final Context    ctx;
@@ -219,8 +219,9 @@ public class OBDManager {
         sendCmd("ATH0");            // headers off  ← we'll get "62 XX XX [data]" format
         sendCmd("ATS0");            // spaces off   ← response bytes with no spaces
         sendCmd("ATSP0");           // auto-detect protocol
-        sendCmd("ATST19");          // timeout 25ms per try (0x19 = 25)
+        sendCmd("ATST32");          // timeout 50ms per try (0x32 = 50 * 4ms = 200ms)
         sendCmd("ATAT1");           // adaptive timing mode 1
+        sendCmd("ATAL");            // allow long messages (multi-frame Mode 22 responses)
         // Verify comms with a simple Mode 01 ping
         String resp = sendCmd("0100");
         if (resp.contains("UNABLE") || resp.contains("ERROR") || resp.isEmpty()) {
@@ -253,7 +254,7 @@ public class OBDManager {
             parseRPM(sendCmd("010C"));
             parseSpeed(sendCmd("010D"));
             parseMAP(sendCmd("010B"));
-            parsePedal(sendCmd("0149"));
+            parsePedal(sendCmd("0145"));  // PID 0x45 = Relative Accelerator Pedal Position
             parseCatTemp(sendCmd("013C"));
 
             // ════════════════════════════════════════════════════
@@ -261,8 +262,10 @@ public class OBDManager {
             // Engine vitals, fuel trim, knock
             // ════════════════════════════════════════════════════
             if (loopCount % 3 == 0) {
+                if (!"7DF".equals(currentHeader)) { sendCmd("ATSH7DF"); currentHeader = "7DF"; }
                 parseLoad(sendCmd("0104"));
                 parseCoolant(sendCmd("0105"));
+                parseOilTemp(sendCmd("015C"));  // Mode 01 PID 0x5C: oil temp, reliable & fast
                 parseTiming(sendCmd("010E"));
                 parseMAF(sendCmd("0110"));
                 parseSTFT(sendCmd("0106"));
@@ -289,7 +292,6 @@ public class OBDManager {
                 parseBattery(sendCmd("ATRV"));
 
                 sendCmd("ATSH7E0"); currentHeader = "7E0";
-                parseOilTemp(sendCmdTimeout("2210AF", CMD_TIMEOUT_SLOW));
                 parseRoughness(sendCmdTimeout("223062", CMD_TIMEOUT_SLOW), 1);
                 parseRoughness(sendCmdTimeout("223048", CMD_TIMEOUT_SLOW), 2);
                 parseRoughness(sendCmdTimeout("223068", CMD_TIMEOUT_SLOW), 3);
@@ -318,6 +320,11 @@ public class OBDManager {
                 parseSecondaryRpm(sendCmdTimeout("2230D0", CMD_TIMEOUT_SLOW));
                 parseGearRatioAct(sendCmdTimeout("2230DA", CMD_TIMEOUT_SLOW));
                 parseGearRatioTgt(sendCmdTimeout("2230F8", CMD_TIMEOUT_SLOW));
+                // PIDs confirmed in CarScanner log (2210D2 = TCU, 221299 = ECM)
+                parsePriPulley(sendCmdTimeout("2210D2", CMD_TIMEOUT_SLOW));
+
+                sendCmd("ATSH7E0"); currentHeader = "7E0";
+                parseCvtMode(sendCmdTimeout("221299", CMD_TIMEOUT_SLOW));
             }
 
             data.updatePeaks();
@@ -402,7 +409,7 @@ public class OBDManager {
         return u.contains("NODATA") || u.contains("NO DATA") || u.contains("ERROR")
                || u.contains("UNABLE") || u.contains("?") || u.contains("STOPPED")
                || u.contains("BUSBUSY") || u.contains("BUS BUSY")
-               || (u.contains("7F") && u.contains("31")); // negative response frame
+               || u.contains("7F22") || u.contains("7F21"); // UDS negative response to mode 22/21
     }
 
     // ── Mode 01 parsers ───────────────────────────────────────────
@@ -502,10 +509,15 @@ public class OBDManager {
     // Skip first 4 bytes (service 62 + 2-byte PID = 3 hex chars each = 8 chars total)
     // First data byte is at position 4 in the stripped hex string
 
-    /** Get first data byte from a Mode 22 response "621XYYAA..." → AA */
+    /** Get data byte from a Mode 22 response — searches for the 0x62 service byte
+     *  to handle cases where partial headers are present (ELM327 clone quirks). */
     private int m22byte(String r, int dataByteIndex) {
-        // "62" + 2-byte PID = 6 chars header, then data bytes
-        return byteAt(strip(r), 3 + dataByteIndex);
+        String s = strip(r);
+        // Find "62" service response prefix — may be offset if header not fully stripped
+        int idx = s.indexOf("62");
+        // Use found position if plausible; fall back to byte-3 (clean ATH0 response)
+        int base = (idx >= 0 && idx % 2 == 0) ? idx / 2 : 0;
+        return byteAt(s, base + 3 + dataByteIndex);
     }
 
     private int m22word(String r) {
@@ -515,13 +527,11 @@ public class OBDManager {
     }
 
     private void parseOilTemp(String r) {
-        // Subaru FA20 oil temp: raw byte, formula A - 40 gives °C
-        // (ScanGauge TXD 07E02210AF, MTH 00090005FFD8 = converts to °F for display)
-        // Raw 0x28=40 → 0°C, 0x8C=140 → 100°C, 0xA0=160 → 120°C
-        if (isError(r)) return;
-        int a = m22byte(r, 0); if (a < 0) return;
-        float v = a - 40f; // °C
-        if (v > -41f && v < 200f) data.oilTempC = v; // sanity gate
+        // Mode 01 PID 0x5C — standard engine oil temperature, A-40 = °C
+        r = strip(r); if (isError(r) || r.length() < 6) return;
+        int a = byteAt(r, 2); if (a < 0) return;
+        float v = a - 40f;
+        if (v > -41f && v < 200f) data.oilTempC = v;
     }
 
     private void parseKnockCorr(String r) {
@@ -656,6 +666,22 @@ public class OBDManager {
         if (isError(r)) return;
         int v = m22word(r); if (v < 0) return;
         data.gearRatioTgt = v * 100f / 255f;
+    }
+
+    private void parsePriPulley(String r) {
+        // 2210D2 from TCU (7E1/7E9) — confirmed in CarScanner log, value 0x75=117
+        // Likely primary pulley pressure; raw * 6.9 ≈ kPa, or raw as-is (psi-adjacent)
+        if (isError(r)) return;
+        int a = m22byte(r, 0); if (a < 0) return;
+        data.priPulleyRaw = a;
+    }
+
+    private void parseCvtMode(String r) {
+        // 221299 from ECM (7E0/7E8) — confirmed in CarScanner log, value 0x04
+        // Likely CVT selector position / range indicator (raw byte 0-255)
+        if (isError(r)) return;
+        int a = m22byte(r, 0); if (a < 0) return;
+        data.cvtModeRaw = a;
     }
 
     // ── Utility ───────────────────────────────────────────────────

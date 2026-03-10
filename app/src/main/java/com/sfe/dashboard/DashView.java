@@ -63,7 +63,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         "BLUETOOTH INIT ......... SPP",
         "CONNECTING ............. OBDII",
         "ECU HANDSHAKE .......... FA20DIT",
-        "TCU HANDSHAKE .......... CVT TR580",
+        "TCU HANDSHAKE .......... CVT TR690",
         "CALIBRATION DATA ....... LOADED",
         "WARMUP STATUS .......... MONITORING",
         "RENDER ENGINE .......... V4.0"
@@ -165,7 +165,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             new PageDef("ENGINE","PERFORMANCE","arc",0,
                 pid("ENGINE RPM","RPM",0,7000,0, fl(0,800,5000,6500),fl(800,5000,6500,9e9f),cs("blue","green","yellow","red")),
                 pid("ENGINE LOAD","%",0,100,1,  fl(0,40,70,90),fl(40,70,90,9e9f),cs("green","yellow","orange","red")),
-                pid("THROTTLE","%",0,100,1,      fl(0,80,95),fl(80,95,9e9f),cs("green","yellow","red")),
+                pid("PEDAL POS","%",0,100,1,      fl(0,80,95),fl(80,95,9e9f),cs("green","yellow","red")),
                 pid("IGN TIMING","°",-20,45,1,   fl(-20,0,10,25,35),fl(0,10,25,35,9e9f),cs("red","orange","green","yellow","cyan"))),
             new PageDef("TEMPERATURES","THERMAL MAP","arc",0,
                 pid("COOLANT TEMP","°F",32,266,0,  fl(32,140,210,239),fl(140,210,239,9e9f),cs("blue","green","yellow","red")),
@@ -200,7 +200,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             new PageDef("TIMING","KNOCK · ADVANCE","arc",0,
                 pid("IGN TIMING","°",-15,45,1, fl(-15,0,8,20,35),fl(0,8,20,35,9e9f),cs("red","orange","yellow","green","cyan")),
                 pid("ENGINE LOAD","%",0,100,1, fl(0,40,70,90),fl(40,70,90,9e9f),cs("green","yellow","orange","red")),
-                pid("THROTTLE","%",0,100,1,    fl(0,80,95),fl(80,95,9e9f),cs("green","yellow","red")),
+                pid("PEDAL POS","%",0,100,1,    fl(0,80,95),fl(80,95,9e9f),cs("green","yellow","red")),
                 pid("KNOCK CORR","°",-6,0,2,   fl(-6,-3,-1.5f,-0.5f),fl(-3,-1.5f,-0.5f,9e9f),cs("red","orange","yellow","green"))),
             new PageDef("IGNITION","BATTERY · BARO","arc",1,
                 pid("IGN TIMING","°",-15,45,1,  fl(-15,0,8,20,35),fl(0,8,20,35,9e9f),cs("red","orange","yellow","green","cyan")),
@@ -275,9 +275,14 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
     public void toggleAutoScroll(){ autoScr = !autoScr; }
     public void dismissAlert()   { alertOn = false; }
     public void triggerKnockAlert() {
-        alertMsg = "SIGNIFICANT KNOCK"; alertSev = "orange";
-        alertVal = DashData.get().knockCorr + "°"; alertSub = "ECU RETARDING TIMING >2.5°";
+        DashData d = DashData.get();
+        alertMsg = "SIGNIFICANT KNOCK"; alertSev = d.knockCorr < -4f ? "red" : "orange";
+        alertVal = String.format("%.2f°", d.knockCorr); alertSub = "ECU RETARDING TIMING >2.5°";
         alertOn = true;
+    }
+
+    private void triggerAlert(String msg, String sub, String val, String sev) {
+        alertMsg = msg; alertSub = sub; alertVal = val; alertSev = sev; alertOn = true;
     }
 
     // ── SurfaceHolder.Callback ────────────────────────────────────
@@ -374,7 +379,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             hline(c, t, 215);
             drawPageHeader(c, t, pg);
             drawCards(c, t, pg);
-            drawBottomBar(c, t);
+
         }
 
         if (alertOn) drawAlert(c, t);
@@ -385,10 +390,30 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             if (now - autoLastMs > AUTO_INTERVAL) { nextPage(); autoLastMs = now; }
         }
 
-        // Auto-trigger knock alert from live data
+        // Auto-trigger alerts from live data — priority-ordered, one at a time
         DashData d = DashData.get();
-        if (!alertOn && d.connected && d.knockCorr < -2.5f) {
-            triggerKnockAlert();
+        if (!alertOn && d.connected) {
+            if (d.knockCorr < -2.5f) {
+                triggerKnockAlert();
+            } else if (d.coolantF() > 225f) {
+                triggerAlert("COOLANT OVERHEAT", "ENGINE TEMP CRITICAL — STOP SAFELY",
+                    String.format("%.0f°F", d.coolantF()), "red");
+            } else if (d.cvtTempF() > 230f) {
+                triggerAlert("CVT OVERHEAT", "CVT FLUID TEMP CRITICAL — REDUCE LOAD",
+                    String.format("%.0f°F", d.cvtTempF()), "red");
+            } else if (d.oilTempF() > 260f) {
+                triggerAlert("OIL OVERHEAT", "ENGINE OIL TEMP CRITICAL",
+                    String.format("%.0f°F", d.oilTempF()), "red");
+            } else if (d.boostPsi() > 20f) {
+                triggerAlert("BOOST SPIKE", "BOOST PRESSURE EXCEEDED SAFE LIMIT",
+                    String.format("+%.1f PSI", d.boostPsi()), "red");
+            } else if (d.battV > 5f && d.battV < 11.5f) {
+                triggerAlert("LOW VOLTAGE", "CHARGING SYSTEM FAILURE",
+                    String.format("%.1fV", d.battV), "orange");
+            } else if (d.catTempF() > 1600f && d.catTempF() < 2000f) {
+                triggerAlert("CAT OVERHEAT", "CATALYST TEMP CRITICAL",
+                    String.format("%.0f°F", d.catTempF()), "orange");
+            }
         }
 
         pushHistory();
@@ -411,7 +436,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             return;
         }
         engRpmSmooth += (rpm - engRpmSmooth) * Math.min(1f, dt * 4f);
-        engAngle += engRpmSmooth / 60f * (float)(Math.PI * 2) * dt;
+        engAngle += engRpmSmooth / 60f * (float)(Math.PI * 2) * dt * 0.25f;
     }
 
     // ── G-force update ────────────────────────────────────────────
@@ -726,7 +751,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         sf(7, kc<-2.5f, false);
         textP.setColor(kc<-2.5f ? t.red : ac(t.label,180));
         textP.setTextAlign(Paint.Align.LEFT);
-        c.drawText(String.format("KNK%.1f", kc), 147, 17, textP);
+        c.drawText(String.format("KNK %.1f", kc), 147, 17, textP);
         // Auto badge
         fillRect(c, 194,4,1,18, t.border, 0.3f);
         if (autoScr) { sf(6,false,false); textP.setColor(t.accent); textP.setTextAlign(Paint.Align.LEFT); c.drawText("AUTO",198,17,textP); }
@@ -788,7 +813,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
 
     // ── CARDS 2×2 ─────────────────────────────────────────────────
 
-    private static final float[][] CP = {{5,239,153,96},{163,239,153,96},{5,339,153,96},{163,339,153,96}};
+    private static final float[][] CP = {{5,239,153,116},{163,239,153,116},{5,359,153,116},{163,359,153,116}};
 
     private void drawCards(Canvas c, Theme t, PageDef pg) {
         float[] pv = pageVals(pageIdx);
@@ -808,25 +833,25 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             sf(9,true,false); textP.setColor(t.white); textP.setAlpha(255); textP.setTextAlign(Paint.Align.LEFT);
             c.drawText(pid.lbl, cx+8, cy+17, textP);
             String vs = fmtV(v, pid.dec);
-            float fs = vs.length()<=3?26: vs.length()<=5?22: vs.length()<=7?18:14;
+            float fs = vs.length()<=3?30: vs.length()<=5?24: vs.length()<=7?20:15;
             sf(fs,true,true); textP.setTextAlign(Paint.Align.LEFT);
-            textShadow(c, vs, cx+8, cy+52, t.bg, col);
+            textShadow(c, vs, cx+8, cy+60, t.bg, col);
             float tw = textP.measureText(vs);
-            sf(9,false,false); textP.setColor(ac(col,230)); textP.setAlpha(230);
-            c.drawText(pid.unit, cx+8+tw+3, cy+48, textP);
+            sf(10,false,false); textP.setColor(ac(col,230)); textP.setAlpha(230);
+            c.drawText(pid.unit, cx+8+tw+3, cy+56, textP);
             // Bar
-            float bx=cx+8,by=cy+62,bw=cw-16,bh=6;
+            float bx=cx+8,by=cy+74,bw=cw-16,bh=6;
             fillRect(c,bx,by,bw,bh, t.bg, 1f);
             fillRect(c,bx,by,(int)(nv*bw),bh, col, 1f);
             strokeRect(c,bx,by,bw,bh, t.border, 0.5f, 1f);
             sf(7,false,false); textP.setColor(ac(t.label,180));
-            textP.setTextAlign(Paint.Align.LEFT); c.drawText(fmtV(pid.mn,0), bx, cy+82, textP);
-            textP.setTextAlign(Paint.Align.RIGHT); c.drawText(fmtV(pid.mx,0), bx+bw, cy+82, textP);
+            textP.setTextAlign(Paint.Align.LEFT); c.drawText(fmtV(pid.mn,0), bx, cy+96, textP);
+            textP.setTextAlign(Paint.Align.RIGHT); c.drawText(fmtV(pid.mx,0), bx+bw, cy+96, textP);
         }
-        fillRect(c, 0,335,LW,4, t.dim, 1f);
+        fillRect(c, 0,355,LW,4, t.dim, 1f);
     }
 
-    // ── BOTTOM BAR ────────────────────────────────────────────────
+    // ── BOTTOM BAR (kept for compatibility, no longer called in main flow) ────
 
     private void drawBottomBar(Canvas c, Theme t) {
         hline(c,t,435);
@@ -872,12 +897,69 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
 
     private void drawHero(Canvas c, Theme t, PageDef pg) {
         if ("gforce".equals(pg.type)) { drawGMeter(c,t); return; }
+        // Boost page (idx 2) gets a turbo compressor wheel behind the arc gauge
+        if (pageIdx == 2) drawTurboWheel(c, t);
         PidDef pid = pg.pids[pg.heroIdx];
         float[] pv = pageVals(pageIdx);
         float v = pg.heroIdx < pv.length ? pv[pg.heroIdx] : 0;
         drawArcGauge(c, t, pid, v);
         sf(8,false,false); textP.setColor(ac(t.label,220)); textP.setTextAlign(Paint.Align.CENTER);
         c.drawText(pid.lbl, LW/2f, 196, textP);
+    }
+
+    // ── TURBO COMPRESSOR WHEEL ────────────────────────────────────
+
+    private void drawTurboWheel(Canvas c, Theme t) {
+        DashData d = DashData.get();
+        float boost = d.boostPsi();
+        // Normalized: 0 at vacuum, 1 at 20 PSI
+        float nb = Math.max(0f, Math.min(1f, (boost + 2f) / 22f));
+        // Turbo spins at ~15-20× engine speed; scale visually by RPM + boost
+        float turboA = engAngle * (5f + nb * 9f);
+        float cx = AG_CX, cy = AG_CY;
+        int numBlades = 8;
+        float outerR = 72f, innerR = 14f;
+        int col = nb < 0.05f ? t.blue : nb < 0.4f ? t.cyan : nb < 0.75f ? t.green : t.yellow;
+        float bladeAlpha = 0.09f + nb * 0.22f;
+
+        // Outer diffuser ring
+        strokeP.setStyle(Paint.Style.STROKE); strokeP.setStrokeWidth(2f);
+        strokeP.setColor(ac(t.border, 0.18f + nb * 0.2f));
+        c.drawCircle(cx, cy, outerR + 4, strokeP);
+        // Inner hub
+        fillP.setStyle(Paint.Style.FILL); fillP.setColor(ac(t.border, 0.25f));
+        c.drawCircle(cx, cy, innerR, fillP);
+
+        // Blades — curved radial trapezoids using pre-allocated path
+        for (int b = 0; b < numBlades; b++) {
+            float baseA = turboA + b * (float)(Math.PI * 2 / numBlades);
+            float tipA  = baseA  - 0.55f; // blade sweep angle
+            float bx1 = cx + cos(baseA) * innerR, by1 = cy + sin(baseA) * innerR;
+            float bx2 = cx + cos(baseA + 0.35f) * innerR, by2 = cy + sin(baseA + 0.35f) * innerR;
+            float tx1 = cx + cos(tipA) * outerR, ty1 = cy + sin(tipA) * outerR;
+            float tx2 = cx + cos(tipA + 0.3f) * outerR, ty2 = cy + sin(tipA + 0.3f) * outerR;
+            sparkPath.rewind();
+            sparkPath.moveTo(bx1, by1); sparkPath.lineTo(tx1, ty1);
+            sparkPath.lineTo(tx2, ty2); sparkPath.lineTo(bx2, by2); sparkPath.close();
+            fillP.setColor(ac(col, bladeAlpha));
+            c.drawPath(sparkPath, fillP);
+            // Blade edge highlight
+            strokeP.setColor(ac(col, bladeAlpha * 1.8f)); strokeP.setStrokeWidth(1f);
+            c.drawLine(bx1, by1, tx1, ty1, strokeP);
+        }
+
+        // Glow halo when boosting
+        if (nb > 0.15f) {
+            fillP.setColor(ac(col, nb * 0.08f));
+            c.drawCircle(cx, cy, outerR + 6, fillP);
+        }
+
+        // Boost value ring overlay (thin arc showing boost level)
+        if (nb > 0.02f) {
+            arcRect.set(cx - outerR - 3, cy - outerR - 3, cx + outerR + 3, cy + outerR + 3);
+            strokeP.setColor(ac(col, 0.28f + nb * 0.3f)); strokeP.setStrokeWidth(3f);
+            c.drawArc(arcRect, AG_START, nb * AG_SWEEP, false, strokeP);
+        }
     }
 
     // ── CYLINDER PAGE ─────────────────────────────────────────────
@@ -894,19 +976,63 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         float[] roughVals = {d.rough1, d.rough2, d.rough3, d.rough4};
         float CY=210, BORE=36, STROKE=40, PISTH=13, WALL=2, CR=18;
         float crankX=LW/2f, crankY=CY;
+        DashData dd=DashData.get();
 
-        // Crank disc
+        // ── Engine block background panels ──────────────────────────
+        float blockTop=CY-64, blockBot=CY+64;
+        fillRect(c, 8, blockTop, 82, blockBot-blockTop, t.panel, 0.55f);  // left bank
+        fillRect(c, LW-90, blockTop, 82, blockBot-blockTop, t.panel, 0.55f); // right bank
+        strokeRect(c, 8, blockTop, 82, blockBot-blockTop, t.border, 0.4f, 1f);
+        strokeRect(c, LW-90, blockTop, 82, blockBot-blockTop, t.border, 0.4f, 1f);
+        // Cam covers — thin accent strips at outer edges
+        fillRect(c, 8, blockTop, 82, 5, t.adim, 1f);
+        fillRect(c, LW-90, blockTop, 82, 5, t.adim, 1f);
+        sf(5,true,false); textP.setColor(ac(t.accent,0.5f)); textP.setTextAlign(Paint.Align.CENTER);
+        c.drawText("FA20", 49, blockTop+12, textP);
+        c.drawText("FA20", LW-49, blockTop+12, textP);
+
+        // ── AVCS cam angle indicators (OCV duty → cam pos proxy) ──
+        float ocvL=(dd.ocvIntakeL+dd.ocvExhL)/2f/100f, ocvR=(dd.ocvIntakeR+dd.ocvExhR)/2f/100f;
+        float camArcR=8f;
+        for(int bank=0;bank<2;bank++){
+            float bx = bank==0?26f:LW-26f;
+            float ocv = bank==0?ocvL:ocvR;
+            int camCol = ocv<0.15f?t.blue:ocv<0.5f?t.cyan:t.green;
+            strokeP.setStyle(Paint.Style.STROKE); strokeP.setStrokeWidth(2f);
+            strokeP.setColor(ac(t.border,0.4f));
+            arcRect.set(bx-camArcR,blockTop+16-camArcR,bx+camArcR,blockTop+16+camArcR);
+            c.drawArc(arcRect,0,360,false,strokeP);
+            strokeP.setColor(camCol); strokeP.setStrokeWidth(2.5f);
+            c.drawArc(arcRect,-90,ocv*270,false,strokeP);
+        }
+
+        // ── Oil temp heat-map glow on block ───────────────────────
+        float oilN=Math.max(0,Math.min(1f,(dd.oilTempF()-100f)/150f)); // 0 at 100°F, 1 at 250°F
+        if(oilN>0.1f){
+            int oilCol=oilN<0.5f?t.blue:oilN<0.8f?t.green:oilN<0.95f?t.yellow:t.red;
+            fillRect(c, 8,blockTop,82,blockBot-blockTop, oilCol, oilN*0.06f);
+            fillRect(c, LW-90,blockTop,82,blockBot-blockTop, oilCol, oilN*0.06f);
+        }
+
+        // ── Crank disc ─────────────────────────────────────────────
         fillP.setStyle(Paint.Style.FILL); fillP.setColor(t.panel); fillP.setAlpha(255);
         c.drawCircle(crankX, crankY, CR+10, fillP);
         strokeP.setColor(t.border); strokeP.setStyle(Paint.Style.STROKE); strokeP.setStrokeWidth(1.5f);
         c.drawCircle(crankX, crankY, CR+10, strokeP);
+        // Timing ring marks
+        for(int tm=0;tm<12;tm++){
+            double ta=Math.toRadians(tm*30);
+            float r1=CR+8, r2=CR+11;
+            strokeP.setColor(ac(t.accent,0.35f)); strokeP.setStrokeWidth(1f);
+            c.drawLine((float)(crankX+r1*Math.cos(ta)),(float)(crankY+r1*Math.sin(ta)),
+                       (float)(crankX+r2*Math.cos(ta)),(float)(crankY+r2*Math.sin(ta)),strokeP);
+        }
         fillP.setColor(ac(t.accent,0.18f)); fillP.setAlpha(46); c.drawCircle(crankX, crankY, 7, fillP); fillP.setAlpha(255);
         strokeP.setColor(t.accent); strokeP.setStrokeWidth(1f);
         c.drawCircle(crankX, crankY, 7, strokeP);
-        // Solid dot — no glow layers to reduce flicker
         fillP.setColor(t.accent); fillP.setAlpha(255); c.drawCircle(crankX, crankY, 3, fillP);
 
-        // Crank webs
+        // ── Crank webs ─────────────────────────────────────────────
         for (float off : new float[]{0f, (float)Math.PI}) {
             float a = engAngle + off;
             float px = crankX + cos(a)*CR, py = crankY + sin(a)*CR;
@@ -918,7 +1044,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             c.drawCircle(px, py, 4, fillP);
         }
 
-        // Cylinders
+        // ── Cylinders ──────────────────────────────────────────────
         float[][] rowY = {{CY-46},{CY+46},{CY-46},{CY+46}};
         boolean[] isLeft = {true,true,false,false};
         int[] cpIdx = {0,1,1,0};
@@ -938,31 +1064,75 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             strokeRect(c, boreStartX-WALL, boreTop-WALL, boreLen+WALL*2, BORE+WALL*2, t.border, 0.55f, 1f);
             fillRect(c, boreStartX, boreTop, boreLen, BORE, t.bg, 1f);
 
-            if (pisPos < 0.25f) {
-                fillRect(c, boreStartX+1, boreTop+1, boreLen-2, BORE-2, t.yellow, (1-pisPos/0.25f)*0.65f);
+            // Combustion flash at TDC (pisPos near 0 = TDC for boxer layout)
+            if (pisPos < 0.22f) {
+                float flashA = (1 - pisPos/0.22f);
+                // Combustion chamber end: outer edge of bore
+                float fx = isl ? boreStartX+1 : boreEndX-20;
+                fillRect(c, fx, boreTop+1, 20, BORE-2, t.yellow, flashA*0.6f);
+                if (flashA > 0.6f) fillRect(c, fx, boreTop+1, 12, BORE-2, t.white, (flashA-0.6f)*0.45f);
+                // Exhaust heat glow on bore walls
+                strokeP.setStyle(Paint.Style.STROKE); strokeP.setColor(ac(t.orange, flashA*0.3f));
+                strokeP.setStrokeWidth(2f);
+                c.drawRect(boreStartX-WALL, boreTop-WALL, boreEndX+WALL, boreTop+BORE+WALL, strokeP);
             }
 
-            float phe = isl ? boreStartX+pisPos*STROKE : boreEndX-pisPos*STROKE-PISTH;
-            fillRect(c, phe, boreTop+1, PISTH, BORE-2, t.accent, 1f);
+            // Roughness glow overlay on bore
+            if (rv > 5f) fillRect(c, boreStartX, boreTop, boreLen, BORE, col, Math.min(0.25f, rv/200f));
 
-            // Con-rod
+            float phe = isl ? boreStartX+pisPos*STROKE : boreEndX-pisPos*STROKE-PISTH;
+            // Piston rings highlight
+            fillRect(c, phe, boreTop+1, PISTH, BORE-2, t.accent, 1f);
+            fillRect(c, phe, boreTop+3, PISTH, 2, ac(t.white,0.35f), 1f);
+            fillRect(c, phe, boreTop+BORE-6, PISTH, 2, ac(t.white,0.2f), 1f);
+
+            // Con-rod (thicker, more visible)
             float cpA = engAngle + (cpIdx[ci]==0?0:(float)Math.PI);
             float cpX2 = crankX + cos(cpA)*CR, cpY2 = crankY + sin(cpA)*CR;
-            strokeP.setColor(ac(t.label,0.3f)); strokeP.setStrokeWidth(2f);
+            strokeP.setColor(ac(t.label,0.5f)); strokeP.setStrokeWidth(3f); strokeP.setStyle(Paint.Style.STROKE);
+            c.drawLine(isl?phe+PISTH:phe, rY, cpX2, cpY2, strokeP);
+            strokeP.setColor(ac(t.accent,0.25f)); strokeP.setStrokeWidth(1.5f);
             c.drawLine(isl?phe+PISTH:phe, rY, cpX2, cpY2, strokeP);
 
-            // Cyl number
+            // Cyl number + roughness indicator dot
             float numX = isl ? boreStartX-9 : boreEndX+9;
             sf(9,true,true); textP.setColor(col); textP.setAlpha(255); textP.setTextAlign(Paint.Align.CENTER);
             c.drawText(String.valueOf(ci+1), numX, rY+4, textP);
+            glowDot(c, numX, rY+10, 2.5f, col);
         }
+
+        // ── Exhaust manifold lines (decorative) ───────────────────
+        strokeP.setStyle(Paint.Style.STROKE); strokeP.setStrokeWidth(2.5f);
+        strokeP.setColor(ac(t.orange,0.22f));
+        // Left bank: short stub lines from bore head ends inward
+        c.drawLine(14, CY-46, 14, CY+10, strokeP);
+        c.drawLine(14, CY+46, 14, CY+10, strokeP);
+        c.drawLine(8, CY+10, 14, CY+10, strokeP);
+        // Right bank
+        c.drawLine(LW-14, CY-46, LW-14, CY+10, strokeP);
+        c.drawLine(LW-14, CY+46, LW-14, CY+10, strokeP);
+        c.drawLine(LW-8, CY+10, LW-14, CY+10, strokeP);
+
+        // ── Intake runners (decorative) ────────────────────────────
+        strokeP.setColor(ac(t.cyan,0.18f)); strokeP.setStrokeWidth(1.5f);
+        c.drawLine(14, CY-46, 8, CY-46, strokeP);
+        c.drawLine(14, CY+46, 8, CY+46, strokeP);
+        c.drawLine(LW-14, CY-46, LW-8, CY-46, strokeP);
+        c.drawLine(LW-14, CY+46, LW-8, CY+46, strokeP);
 
         sf(7,false,false); textP.setColor(ac(t.white,0.65f)); textP.setTextAlign(Paint.Align.CENTER);
         c.drawText("FIRING ORDER  1-3-2-4", LW/2f, CY+72, textP);
         textP.setColor(t.accent); c.drawText("FA20DIT · BOXER-4 · 2.0L DI", LW/2f, CY+87, textP);
+        // Live RPM + boost mini strip
+        sf(7,true,true); textP.setColor(t.white); textP.setTextAlign(Paint.Align.LEFT);
+        c.drawText(String.valueOf(Math.round(dd.rpm))+" RPM", LW/2f-50, CY+72, textP);
+        sf(7,true,true); textP.setTextAlign(Paint.Align.RIGHT);
+        int bCol=dd.boostPsi()<0?t.cyan:dd.boostPsi()<10?t.green:t.yellow;
+        textP.setColor(bCol);
+        c.drawText((dd.boostPsi()>=0?"+":"")+String.format("%.1f",dd.boostPsi())+" PSI", LW/2f+50, CY+72, textP);
 
         hline(c,t,310);
-        float cW=78,cH=56,cY2=314;
+        float cW=78,cH=82,cY2=312;
         for (int i=0; i<4; i++) {
             float cx2=i*(cW+2)+2;
             float rv=roughVals[i]; PidDef pid=PAGES[4].pids[i]; int col=bandColor(pid,rv,t);
@@ -974,13 +1144,30 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             cbrk(c,cx2,cY2,cW,cH, ac(t.accent,0.25f), 4);
             sf(8,true,false); textP.setColor(t.white); textP.setAlpha(255); textP.setTextAlign(Paint.Align.CENTER);
             c.drawText(new String[]{"CYL 1","CYL 2","CYL 3","CYL 4"}[i], cx2+cW/2f, cY2+15, textP);
-            sf(18,true,true); textP.setTextAlign(Paint.Align.CENTER);
-            textShadow(c, String.format("%.1f",rv), cx2+cW/2f, cY2+37, t.bg, col);
+            sf(22,true,true); textP.setTextAlign(Paint.Align.CENTER);
+            textShadow(c, String.format("%.1f",rv), cx2+cW/2f, cY2+44, t.bg, col);
             sf(7,false,false); textP.setColor(col); textP.setTextAlign(Paint.Align.CENTER);
-            c.drawText(rv<10?"OK":rv<30?"WATCH":"KNOCK", cx2+cW/2f, cY2+51, textP);
+            c.drawText(rv<10?"OK":rv<30?"WATCH":"KNOCK", cx2+cW/2f, cY2+58, textP);
+            // mini bar
+            float bx=cx2+6, by=cY2+cH-14, bw=cW-12;
+            fillRect(c,bx,by,bw,5, t.bg, 1f);
+            fillRect(c,bx,by,(int)(nv*bw),5, col, 1f);
+            strokeRect(c,bx,by,bw,5, t.border, 0.4f, 1f);
         }
-        hline(c,t,372);
-        drawBottomBar(c,t);
+        hline(c,t,396);
+        // Status strip — RPM + Speed now that bottom bar is gone
+        DashData ds=DashData.get();
+        fillRect(c,0,396,LW,LH-396, t.dim, 1f);
+        int[] scols2={bandColor(PAGES[0].pids[0],ds.rpm,t), bandColor(PAGES[6].pids[1],ds.speedMph(),t), ds.connected?t.green:t.orange};
+        String[] slbls2={"RPM","MPH","OBD"}; String[] svals2={String.valueOf(Math.round(ds.rpm)),String.valueOf(Math.round(ds.speedMph())),ds.btStatus};
+        for(int i=0;i<3;i++){
+            int sx3=i*(LW/3);
+            fillRect(c,sx3+(i>0?1:0),398,2,LH-400, scols2[i], 1f);
+            sf(7,true,false); textP.setColor(t.white); textP.setAlpha(255); textP.setTextAlign(Paint.Align.LEFT);
+            c.drawText(slbls2[i],sx3+6,408,textP);
+            sf(9,true,true); textP.setColor(scols2[i]); c.drawText(svals2[i],sx3+6,473,textP);
+            if(i<2) fillRect(c,sx3+(LW/3)-1,398,1,LH-400, t.border, 0.3f);
+        }
     }
 
     // ── SESSION PAGE ──────────────────────────────────────────────
@@ -999,7 +1186,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         String[] pkUnits= {"PSI","RPM","°","%","MPH","°","G/S","HP","°F"};
         int[] pkColors  = {t.cyan,t.green,t.yellow,t.orange,t.blue,t.red,t.purple,t.accent,t.orange};
         int[] pkDecs    = {2,0,1,1,0,2,1,0,0};
-        int cols=3,rows=3,startY=52,tW=LW/cols,tH=(LH-startY-30)/rows;
+        int cols=3,rows=3,startY=52,tW=LW/cols,tH=(LH-startY-54)/rows;
         for (int i=0;i<9;i++) {
             int col2=i%cols, row2=i/cols;
             float cx=col2*tW, cy=startY+row2*tH;
@@ -1025,7 +1212,6 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         sf(11,true,true); textP.setColor(d.knockEventCount>0?t.red:t.green); textP.setTextAlign(Paint.Align.RIGHT);
         c.drawText(String.valueOf(d.knockEventCount), LW-10, sY+15, textP);
         hline(c,t,sY+22);
-        drawBottomBar(c,t);
     }
 
     // ── DRIVE MODE ────────────────────────────────────────────────
@@ -1155,25 +1341,14 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
     private void drawBoot(Canvas c, Theme t) {
         c.drawColor(t.bg);
         long now=System.currentTimeMillis();
-        // Hex rain bg
-        float hexAlpha=0.06f;
-        fillP.setStyle(Paint.Style.FILL); fillP.setColor(ac(t.accent, hexAlpha));
-        textP.setColor(ac(t.accent,(int)(hexAlpha*255)));
-        int seed=(int)(now/100);
-        sf(6,false,false); textP.setTextAlign(Paint.Align.LEFT);
-        char[] HEX="0123456789ABCDEF".toCharArray();
-        for(int hc=0;hc<22;hc++) for(int hr=0;hr<32;hr++) {
-            int a=((seed+hc*7+hr*13)%16+16)%16, b=((seed*3+hc*11+hr*5)%16+16)%16;
-            c.drawText(""+HEX[a]+HEX[b], hc*15-2f, hr*16f+10, textP);
-        }
         fillRect(c, 0,0,LW,3, t.accent, 1f);
         sf(16,true,true); textP.setTextAlign(Paint.Align.CENTER);
         textShadow(c, "SIK FUK ENTERPRISES", LW/2f, 44, t.bg, t.white);
         sf(11,true,true); textP.setColor(t.accent); textP.setAlpha(255); c.drawText("AUTOMOTIVE DIVISION",LW/2f,60,textP);
         sf(8,true,false); textP.setColor(ac(t.white,178)); c.drawText("ENGINE MONITOR  v4.0",LW/2f,76,textP);
-        sf(7,false,false); textP.setColor(ac(t.accent,178)); c.drawText("FA20DIT · SUBARU CROSSTREK · OBD2/UDS",LW/2f,89,textP);
+        sf(7,false,false); textP.setColor(ac(t.accent,178)); c.drawText("FA20DIT · SUBARU FORESTER XT · OBD2/UDS",LW/2f,89,textP);
         fillRect(c, 20,97,LW-40,1, t.accent, 0.4f);
-        String[][] hw={{"MCU","ESP32 / ANDROID BT"},{"OBD","VEEPEAK OBDII · SPP"},{"ECU","AT SH 7E0 · UDS MODE 22"},{"TCU","AT SH 7E1 · CVT TR580"}};
+        String[][] hw={{"MCU","ESP32 / ANDROID BT"},{"OBD","VEEPEAK OBDII · SPP"},{"ECU","AT SH 7E0 · UDS MODE 22"},{"TCU","AT SH 7E1 · CVT TR690"}};
         for(int i=0;i<hw.length;i++){
             float y=105+i*17;
             sf(7,true,false); textP.setColor(t.accent); textP.setAlpha(255); textP.setTextAlign(Paint.Align.LEFT); c.drawText(hw[i][0],14,y,textP);

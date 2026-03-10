@@ -57,6 +57,9 @@ public class DashData {
     public volatile float secondaryRpm  = 820f;
     public volatile float gearRatioAct  = 2.50f;
     public volatile float gearRatioTgt  = 2.50f;
+    // From CarScanner log PIDs
+    public volatile int   priPulleyRaw  = 0;   // 2210D2 from TCU — primary pulley (raw)
+    public volatile int   cvtModeRaw    = 0;   // 221299 from ECM — CVT mode/range (raw)
 
     // ── Derived (computed in getter, not polled) ─────────────────
     public float speedMph()     { return speedKph * 0.621371f; }
@@ -69,9 +72,10 @@ public class DashData {
     public float targetMapPsi() { return targetMapKpa / 6.89476f; }
     public float baroPsi()      { return baroKpa   / 6.89476f; }
 
-    /** Boost = MAP - baro, in PSI. Negative = vacuum. */
+    /** Boost = MAP - baro, in PSI. Negative = vacuum.
+     *  -0.85 PSI calibration offset corrects systematic +0.8-1 PSI over-read. */
     public float boostPsi() {
-        return (mapKpa - baroKpa) / 6.89476f;
+        return (mapKpa - baroKpa) / 6.89476f - 0.85f;
     }
 
     /** CVT belt slip % — turbine vs secondary pulley */
