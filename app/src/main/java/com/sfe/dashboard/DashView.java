@@ -1388,10 +1388,18 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         c.restore();
         textP.setAntiAlias(true);         // restore for all other UI text
 
-        // ── 2. Blue + purple brand stripes (drawn before cuts) ─────
-        // Hardcoded brand colours to match the SFE logo regardless of theme
-        fillRect(c, 0, blueY, LW, bandH, 0xFF3878E8, 1f);   // SFE blue
-        fillRect(c, 0, purpY, LW, bandH, 0xFF7830C0, 1f);   // SFE purple
+        // ── 2. Blue + purple brand stripes — logo width only ───────
+        // Measure text width, then account for italic skew offset at each stripe Y.
+        sf(sz, true, true);
+        float tw = textP.measureText("SFE");
+        final float pad = 6f;  // small horizontal padding on each side
+        // With canvas skew(-0.20,0): text centre at screen-X = LW/2, but at heights
+        // above baseline the italic lean shifts content rightward.
+        // Stripe left/right at a given stripeY: centre shifts by 0.20*(baseline-stripeY).
+        float blueCx = LW / 2f + 0.20f * (baseline - blueY);
+        float purpCx = LW / 2f + 0.20f * (baseline - purpY);
+        fillRect(c, blueCx - tw/2f - pad, blueY, tw + pad*2, bandH, 0xFF3878E8, 1f);
+        fillRect(c, purpCx - tw/2f - pad, purpY, tw + pad*2, bandH, 0xFF7830C0, 1f);
 
         // ── 3. Speed-line cuts (bg-coloured stripes, 2px every 4px) ─
         // Cover the entire logo height; bg colour = invisible outside letters,
@@ -1413,18 +1421,19 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
 
         // ── Subtitle text ─────────────────────────────────────────
         sf(8,true,true);  textP.setColor(t.accent); textP.setAlpha(255); textP.setTextAlign(Paint.Align.CENTER);
-        c.drawText("AUTOMOTIVE DIVISION", LW/2f, 76, textP);
-        sf(7,true,false); textP.setColor(ac(t.white,178)); c.drawText("ENGINE MONITOR  v4.0", LW/2f, 87, textP);
-        sf(6,false,false); textP.setColor(ac(t.accent,160)); c.drawText("FA20DIT · SUBARU FORESTER XT · OBD2/UDS", LW/2f, 97, textP);
+        c.drawText("SIK FUK ENTERPRISES", LW/2f, 76, textP);
+        sf(7,true,false); textP.setColor(ac(t.white,160)); c.drawText("AUTOMOTIVE DIVISION", LW/2f, 86, textP);
+        sf(7,true,false); textP.setColor(ac(t.white,178)); c.drawText("ENGINE MONITOR  v4.0", LW/2f, 97, textP);
+        sf(6,false,false); textP.setColor(ac(t.accent,160)); c.drawText("FA20DIT · SUBARU FORESTER XT · OBD2/UDS", LW/2f, 107, textP);
 
         // ── Divider ───────────────────────────────────────────────
-        fillRect(c, 20, 102, LW-40, 1, t.accent, 0.4f);
+        fillRect(c, 20, 112, LW-40, 1, t.accent, 0.4f);
 
         // ── Hardware spec table ───────────────────────────────────
         String[][] hw={{"MCU","ESP32 / ANDROID BT"},{"OBD","VEEPEAK OBDII · SPP"},
                        {"ECU","AT SH 7E0 · UDS MODE 22"},{"TCU","AT SH 7E1 · CVT TR690"}};
         for(int i=0;i<hw.length;i++){
-            float y=111+i*15;
+            float y=121+i*15;
             sf(7,true,false); textP.setColor(t.accent); textP.setAlpha(255); textP.setTextAlign(Paint.Align.LEFT);
             c.drawText(hw[i][0], 14, y, textP);
             fillRect(c, 42, y-10, 1, 12, t.border, 0.45f);
@@ -1433,10 +1442,10 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         }
 
         // ── Boot check list ───────────────────────────────────────
-        fillRect(c, 20, 173, LW-40, 1, t.border, 0.4f);
+        fillRect(c, 20, 183, LW-40, 1, t.border, 0.4f);
         int n = Math.min(bootLinesShown, BOOT_CHECKS.length);
         for(int i=0;i<n;i++){
-            float y = 183 + i*15;
+            float y = 193 + i*15;
             boolean isPend = (i==n-1) && !bootDone;
             sf(7,true,false);  textP.setColor(isPend?t.yellow:t.green); textP.setTextAlign(Paint.Align.LEFT);
             c.drawText(isPend?"[...]":"[ OK]", 14, y, textP);
