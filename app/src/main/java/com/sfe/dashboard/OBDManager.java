@@ -323,7 +323,7 @@ public class OBDManager {
             // Staggered so TCU never waits behind the full ECU block
             // ════════════════════════════════════════════════════
             if (loopCount % 10 == 5) {
-                setHeader("7E1", "7E9");
+                setHeaderForce("7E1", "7E9");  // force re-send every time: ELM clones may silently drop ATCRA7E9
                 parseCVTTemp(sendCmdTimeout("221021", CMD_TIMEOUT_SLOW));        // was 221017
                 parseLockup(sendCmdTimeout("221045", CMD_TIMEOUT_SLOW));
                 parseTransfer(sendCmdTimeout("221065", CMD_TIMEOUT_SLOW));
@@ -416,6 +416,17 @@ public class OBDManager {
             sendCmd("ATCRA" + cra);
             currentCRA = cra;
         }
+    }
+
+    /** Like setHeader but always re-sends both AT commands regardless of cache.
+     *  Use when switching to a secondary ECU (e.g. TCU) where ATCRA must be
+     *  applied fresh — cheap ELM327 clones may silently ignore ATCRA7E9 if it
+     *  arrives while the bus is still settling after the previous ECU command. */
+    private void setHeaderForce(String hdr, String cra) throws IOException {
+        sendCmd("ATSH" + hdr);
+        currentHeader = hdr;
+        sendCmd("ATCRA" + cra);
+        currentCRA = cra;
     }
 
     /** Write raw bytes without reading response */
