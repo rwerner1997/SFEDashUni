@@ -81,7 +81,7 @@ public class DashData {
     public volatile float secondaryRpm  = 820f;   // 221152 — output shaft speed (rpm)
     public volatile float gearRatioAct  = 2.50f;  // 221150 — CVT ratio actual
     public volatile float gearRatioTgt  = 2.50f;  // 2230F8 — CVT ratio target
-    public volatile float torqueConverterSlipRpm = 0f; // 221153 — torque converter slip (rpm)
+    public volatile float torqueConverterSlipRpm = -1f; // 221153 — torque converter slip (rpm); -1 = not yet received
     // From CarScanner log PIDs
     public volatile int   priPulleyRaw  = 0;   // 2210D2 from TCU — primary pulley (raw)
     public volatile int   cvtModeRaw    = 0;   // 221299 from ECM — CVT mode/range (raw)
@@ -112,7 +112,7 @@ public class DashData {
 
     /** CVT torque converter slip — direct from 221153 when available, else calculated. */
     public float cvtSlipPct() {
-        if (torqueConverterSlipRpm >= 0f && turbineRpm > 100f)
+        if (torqueConverterSlipRpm >= 0f && turbineRpm > 100f)   // -1 means not received yet
             return torqueConverterSlipRpm / turbineRpm * 100f;
         if (turbineRpm < 100f) return 0f;
         return Math.abs(turbineRpm - secondaryRpm) / turbineRpm * 100f;
