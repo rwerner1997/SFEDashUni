@@ -295,6 +295,7 @@ public class OBDManager {
             // TIER 3a — ECU slow: every 10th loop (~1Hz)
             // ════════════════════════════════════════════════════
             if (loopCount % 10 == 0) {
+                int ap = data.activePage;
                 // Switch back to 7DF for Mode 01 PIDs
                 setHeader("7DF", "7E8");
                 parseBaro(sendCmd("0133"));
@@ -302,49 +303,61 @@ public class OBDManager {
                 parseBattery(sendCmd("ATRV"));
 
                 setHeader("7E0", "7E8");
-                parseRoughness(sendCmdTimeout("223062", CMD_TIMEOUT_SLOW), 1);
-                parseRoughness(sendCmdTimeout("223048", CMD_TIMEOUT_SLOW), 2);
-                parseRoughness(sendCmdTimeout("223068", CMD_TIMEOUT_SLOW), 3);
-                parseRoughness(sendCmdTimeout("22304A", CMD_TIMEOUT_SLOW), 4);
-                parseOcvIntakeL(sendCmdTimeout("2210BB", CMD_TIMEOUT_SLOW));
-                parseOcvIntakeR(sendCmdTimeout("22109B", CMD_TIMEOUT_SLOW));
-                parseOcvExhL(sendCmdTimeout("2210EF", CMD_TIMEOUT_SLOW));
-                parseOcvExhR(sendCmdTimeout("2210CF", CMD_TIMEOUT_SLOW));
                 parseTargetMAP(sendCmdTimeout("223050", CMD_TIMEOUT_SLOW));
                 parseBattTemp(sendCmdTimeout("22309A", CMD_TIMEOUT_SLOW));
-                parseAltDuty(sendCmdTimeout("221093", CMD_TIMEOUT_SLOW));
-                parseFuelPump(sendCmdTimeout("2210B3", CMD_TIMEOUT_SLOW));
-                parseTurboSpeed(sendCmdTimeout("2210A9", CMD_TIMEOUT_SLOW));     // spec §6
-                parseChargeAirTemp(sendCmdTimeout("2210AA", CMD_TIMEOUT_SLOW));  // spec §6
+                // Roughness only needed on ROUGHNESS page (4)
+                if (ap == 4) {
+                    parseRoughness(sendCmdTimeout("223062", CMD_TIMEOUT_SLOW), 1);
+                    parseRoughness(sendCmdTimeout("223048", CMD_TIMEOUT_SLOW), 2);
+                    parseRoughness(sendCmdTimeout("223068", CMD_TIMEOUT_SLOW), 3);
+                    parseRoughness(sendCmdTimeout("22304A", CMD_TIMEOUT_SLOW), 4);
+                }
+                // OCV only needed on CAM/VVT page (9)
+                if (ap == 9) {
+                    parseOcvIntakeL(sendCmdTimeout("2210BB", CMD_TIMEOUT_SLOW));
+                    parseOcvIntakeR(sendCmdTimeout("22109B", CMD_TIMEOUT_SLOW));
+                    parseOcvExhL(sendCmdTimeout("2210EF", CMD_TIMEOUT_SLOW));
+                    parseOcvExhR(sendCmdTimeout("2210CF", CMD_TIMEOUT_SLOW));
+                }
+                // Turbo detail only needed on BOOST/TURBO page (2)
+                if (ap == 2) {
+                    parseTurboSpeed(sendCmdTimeout("2210A9", CMD_TIMEOUT_SLOW));
+                    parseChargeAirTemp(sendCmdTimeout("2210AA", CMD_TIMEOUT_SLOW));
+                }
+                // Fuel/alt stats used on FUEL page (5)
+                if (ap == 5) {
+                    parseAltDuty(sendCmdTimeout("221093", CMD_TIMEOUT_SLOW));
+                    parseFuelPump(sendCmdTimeout("2210B3", CMD_TIMEOUT_SLOW));
+                }
             }
 
             // ════════════════════════════════════════════════════
             // TIER 3b — TCU slow: every 10th loop, offset by 5
-            // Staggered so TCU never waits behind the full ECU block
+            // Always poll CVT temp (shown on TEMPS page); gate detail behind CVT page (3)
             // ════════════════════════════════════════════════════
             if (loopCount % 10 == 5) {
                 setHeaderForce("7E1", "7E9");  // force re-send every time: ELM clones may silently drop ATCRA7E9
-                parseCVTTemp(sendCmdTimeout("221021", CMD_TIMEOUT_SLOW));        // was 221017
-                parseLockup(sendCmdTimeout("221045", CMD_TIMEOUT_SLOW));
-                parseTransfer(sendCmdTimeout("221065", CMD_TIMEOUT_SLOW));
-                parseTurbineRpm(sendCmdTimeout("221067", CMD_TIMEOUT_SLOW));
-                parsePrimaryRpm(sendCmdTimeout("221151", CMD_TIMEOUT_SLOW));     // was 22300E — input shaft
-                parseSecondaryRpm(sendCmdTimeout("221152", CMD_TIMEOUT_SLOW));   // was 2230D0 — output shaft
-                parseGearRatioAct(sendCmdTimeout("221150", CMD_TIMEOUT_SLOW));   // was 2230DA
-                parseGearRatioTgt(sendCmdTimeout("2230F8", CMD_TIMEOUT_SLOW));   // no spec equivalent, keep
-                parseTorqueConvSlip(sendCmdTimeout("221153", CMD_TIMEOUT_SLOW)); // spec §9 — direct slip rpm
-                // PIDs confirmed in CarScanner log (2210D2 = TCU, 221299 = ECM)
-                parsePriPulley(sendCmdTimeout("2210D2", CMD_TIMEOUT_SLOW));
-
-                setHeader("7E0", "7E8");
-                parseCvtMode(sendCmdTimeout("221299", CMD_TIMEOUT_SLOW));
+                parseCVTTemp(sendCmdTimeout("221021", CMD_TIMEOUT_SLOW));        // shown on TEMPS — always poll
+                if (data.activePage == 3) {
+                    parseLockup(sendCmdTimeout("221045", CMD_TIMEOUT_SLOW));
+                    parseTransfer(sendCmdTimeout("221065", CMD_TIMEOUT_SLOW));
+                    parseTurbineRpm(sendCmdTimeout("221067", CMD_TIMEOUT_SLOW));
+                    parsePrimaryRpm(sendCmdTimeout("221151", CMD_TIMEOUT_SLOW));     // was 22300E — input shaft
+                    parseSecondaryRpm(sendCmdTimeout("221152", CMD_TIMEOUT_SLOW));   // was 2230D0 — output shaft
+                    parseGearRatioAct(sendCmdTimeout("221150", CMD_TIMEOUT_SLOW));   // was 2230DA
+                    parseGearRatioTgt(sendCmdTimeout("2230F8", CMD_TIMEOUT_SLOW));
+                    parseTorqueConvSlip(sendCmdTimeout("221153", CMD_TIMEOUT_SLOW)); // spec §9 — direct slip rpm
+                    parsePriPulley(sendCmdTimeout("2210D2", CMD_TIMEOUT_SLOW));
+                    setHeader("7E0", "7E8");
+                    parseCvtMode(sendCmdTimeout("221299", CMD_TIMEOUT_SLOW));
+                }
             }
 
             // ════════════════════════════════════════════════════
             // TIER 3c — ECU VVT + actuators: every 10th loop, offset 2
-            // ScanGauge PIDs: VVT advance angles, throttle motor, fan
+            // Only needed on CAM/VVT page (9)
             // ════════════════════════════════════════════════════
-            if (loopCount % 10 == 2) {
+            if (loopCount % 10 == 2 && data.activePage == 9) {
                 setHeader("7E0", "7E8");
                 parseVvtAngleR(sendCmdTimeout("221099", CMD_TIMEOUT_SLOW));
                 parseVvtAngleL(sendCmdTimeout("2210B9", CMD_TIMEOUT_SLOW));

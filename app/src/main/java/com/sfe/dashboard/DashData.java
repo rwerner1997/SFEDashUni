@@ -9,6 +9,9 @@ public class DashData {
     private static final DashData INSTANCE = new DashData();
     public static DashData get() { return INSTANCE; }
 
+    // ── Active page (set by DashView on page change) ─────────────
+    public volatile int activePage = 0;
+
     // ── OBD connection state ─────────────────────────────────────
     public volatile boolean connected   = false;
     public volatile String  btStatus    = "SEARCHING";
