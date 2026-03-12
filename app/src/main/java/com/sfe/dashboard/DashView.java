@@ -12,10 +12,10 @@ import android.view.SurfaceView;
  * flat fills, 1-px text shadow, concentric-shape glow (no shadowBlur).
  * Coordinates are in logical 320×480 space, scaled to fill the view.
  *
- * Page map (13 pages):
+ * Page map (15 pages):
  *  0 ENGINE  1 TEMPS  2 BOOST  3 CVT  4 ROUGHNESS  5 FUEL
  *  6 GFORCE  7 TIMING  8 IGNITION  9 AVCS  10 SESSION
- * 11 CVT PULLEYS  12 VVT/ACTUATORS
+ * 11 CVT PULLEYS  12 VVT/ACTUATORS  13 TURBO  14 FUEL DETAIL
  */
 public class DashView extends SurfaceView implements SurfaceHolder.Callback {
 
@@ -198,11 +198,11 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
                 pid("VEHICLE SPEED","MPH",0,100,0,   fl(0,75,90),fl(75,90,9e9f),cs("green","yellow","red")),
                 pid("ENGINE RPM","RPM",0,7000,0,     fl(0,800,5000,6500),fl(800,5000,6500,9e9f),cs("blue","green","yellow","red")),
                 pid("ENGINE LOAD","%",0,100,1,       fl(0,40,70,90),fl(40,70,90,9e9f),cs("green","yellow","orange","red"))),
-            new PageDef("TIMING","KNOCK · ADVANCE","arc",0,
-                pid("IGN TIMING","°",-15,45,1, fl(-15,0,8,20,35),fl(0,8,20,35,9e9f),cs("red","orange","yellow","green","cyan")),
-                pid("ENGINE LOAD","%",0,100,1, fl(0,40,70,90),fl(40,70,90,9e9f),cs("green","yellow","orange","red")),
-                pid("PEDAL POS","%",0,100,1,    fl(0,80,95),fl(80,95,9e9f),cs("green","yellow","red")),
-                pid("KNOCK CORR","°",-6,0,2,   fl(-6,-3,-1.5f,-0.5f),fl(-3,-1.5f,-0.5f,9e9f),cs("red","orange","yellow","green"))),
+            new PageDef("TIMING","KNOCK · ADVANCE · DAM","arc",0,
+                pid("IGN TIMING","°",-15,45,1,  fl(-15,0,8,20,35),fl(0,8,20,35,9e9f),cs("red","orange","yellow","green","cyan")),
+                pid("KNOCK CORR","°",-6,0,2,    fl(-6,-3,-1.5f,-0.5f),fl(-3,-1.5f,-0.5f,9e9f),cs("red","orange","yellow","green")),
+                pid("FINE KNOCK","°",-6,0,2,    fl(-6,-3,-1.5f,-0.5f),fl(-3,-1.5f,-0.5f,9e9f),cs("red","orange","yellow","green")),
+                pid("DAM RATIO","",0f,1f,2,      fl(0f,0.7f,0.9f),fl(0.7f,0.9f,9e9f),cs("red","orange","green"))),
             new PageDef("IGNITION","BATTERY · BARO","arc",1,
                 pid("IGN TIMING","°",-15,45,1,  fl(-15,0,8,20,35),fl(0,8,20,35,9e9f),cs("red","orange","yellow","green","cyan")),
                 pid("BATTERY","V",10,16,2,       fl(0,11.5f,12.4f,14.8f),fl(11.5f,12.4f,14.8f,9e9f),cs("red","yellow","green","yellow")),
@@ -235,6 +235,18 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
                 pid("VVT ADV R","°",0,50,1, fl(0,5,20,40),fl(5,20,40,9e9f),cs("blue","cyan","green","yellow")),
                 pid("THROT MOTOR","%",-100,100,1, fl(-100,-10,10),fl(-10,10,9e9f),cs("red","green","yellow")),
                 pid("RAD FAN","%",0,100,1,  fl(0,20,60,85),fl(20,60,85,9e9f),cs("blue","cyan","green","red"))),
+            // ── Page 13: TURBO ───────────────────────────────────────
+            new PageDef("TURBO","SPEED · AIR · WASTEGATE","arc",0,
+                pid("TURBO RPM","RPM",0,250000,0, fl(0,50000,150000,200000),fl(50000,150000,200000,9e9f),cs("blue","green","yellow","red")),
+                pid("IAT","°F",-40,200,0,          fl(-40,50,120,150),fl(50,120,150,9e9f),cs("blue","green","yellow","red")),
+                pid("CHARGE AIR","°F",-40,200,0,   fl(-40,50,120,150),fl(50,120,150,9e9f),cs("blue","green","yellow","red")),
+                pid("WASTEGATE","%",0,100,1,        fl(0,20,60,85),fl(20,60,85,9e9f),cs("blue","cyan","green","red"))),
+            // ── Page 14: FUEL DETAIL ─────────────────────────────────
+            new PageDef("FUEL DETAIL","AFR · DUTY · TGT BOOST","arc",0,
+                pid("AFR LAMBDA","λ",0.7f,1.4f,3,  fl(0.7f,0.85f,0.95f,1.05f),fl(0.85f,0.95f,1.05f,9e9f),cs("red","orange","yellow","green")),
+                pid("TGT LAMBDA","λ",0.7f,1.4f,3,  fl(0.7f,0.85f,0.95f,1.05f),fl(0.85f,0.95f,1.05f,9e9f),cs("red","orange","yellow","green")),
+                pid("INJ DUTY","%",0,100,1,          fl(0,40,70,85),fl(40,70,85,9e9f),cs("green","cyan","yellow","red")),
+                pid("TGT BOOST","PSI",-2,25,1,       fl(-2,0,14,20),fl(0,14,20,9e9f),cs("cyan","green","yellow","red"))),
         };
     }
     private static PidDef pid(String l,String u,float mn,float mx,int dec,float[]blo,float[]bhi,String[]bc){
@@ -499,13 +511,15 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             {d.rough1, d.rough2, d.rough3, d.rough4},
             {d.stftPct, d.ltftPct, d.fuelPumpPct, d.altDutyPct},
             {gLong, d.speedMph(), d.rpm, d.loadPct},
-            {d.timingDeg, d.loadPct, d.pedalPct, d.knockCorr},
-            {d.timingDeg, d.battV, d.baroPsi(), d.battTempF()},
-            {d.ocvIntakeL, d.ocvIntakeR, d.ocvExhL, d.ocvExhR},
+            {d.timingDeg, d.knockCorr, d.fineKnockDeg, d.damRatio},            // page 7: TIMING
+            {d.timingDeg, d.battV, d.baroPsi(), d.battTempF()},              // page 8: IGNITION
+            {d.ocvIntakeL, d.ocvIntakeR, d.ocvExhL, d.ocvExhR},             // page 9: AVCS
             {d.peakBoostPsi, d.peakRpm, d.peakTimingDeg, d.peakLoadPct,
-             d.peakSpeedMph, d.worstKnockCorr, d.peakMafGs, d.peakEstHp, d.peakCatTempF},
+             d.peakSpeedMph, d.worstKnockCorr, d.peakMafGs, d.peakEstHp, d.peakCatTempF}, // page 10
             {d.gearRatioAct, d.gearRatioTgt, d.primaryRpm, d.secondaryRpm}, // page 11
             {d.vvtAngleL, d.vvtAngleR, d.throttleMotorPct, d.radFanPct},    // page 12
+            {d.turboSpeedRpm, d.iatF(), d.chargeAirTempF(), d.wastegatePct}, // page 13: TURBO
+            {d.afrLambda, d.targetAfrLambda, d.injDutyCyclePct, d.targetBoostPsi}, // page 14: FUEL DETAIL
         };
     }
 

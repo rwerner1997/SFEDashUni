@@ -250,20 +250,15 @@ public class OBDManager {
             long t0 = System.currentTimeMillis();
 
             // ════════════════════════════════════════════════════
-            // TIER 1 — FAST: every loop (~10-20Hz) — MODE 22 BURST
-            // All on header 7E0/CRA 7E8; no header switching in hot path.
-            // Spec §4 burst cycle: RPM, MAP, Boost, MAF, Timing, Coolant.
+            // TIER 1 — FAST: every loop (~10-15Hz) — MODE 01
+            // Standard OBD-II PIDs; reliable across all vehicles.
             // ════════════════════════════════════════════════════
-            setHeader("7E0", "7E8");
-            parseRPM(sendCmd("221027"));          // TODO: verify formula on car
-            parseSpeed(sendCmd("221028"));         // TODO: verify formula on car
-            parseMAP22(sendCmd("221024"));         // TODO: verify formula on car
-            parseThrottleAngle(sendCmd("221022")); // throttle body angle %
-            parsePedal22(sendCmd("221023"));       // accelerator pedal %
-            parseMAF22(sendCmd("221026"));         // TODO: verify formula on car
-            parseTiming22(sendCmd("22102A"));      // TODO: verify formula on car
-            parseCoolant22(sendCmd("221020"));     // TODO: verify formula on car
-            parseBoostDirect(sendCmdTimeout("2210A6", CMD_TIMEOUT_SLOW)); // direct boost psi
+            setHeader("7DF", "7E8");
+            parseRPM(sendCmd("010C"));
+            parseSpeed(sendCmd("010D"));
+            parseMAP(sendCmd("010B"));
+            parsePedal(sendCmd("0145"));   // Relative Accelerator Pedal Position
+            parseCatTemp(sendCmd("013C"));
 
             // ════════════════════════════════════════════════════
             // TIER 2 — MEDIUM: every 3rd loop (~3-5Hz)
@@ -271,18 +266,22 @@ public class OBDManager {
             // Knock, wastegate, IAT, target boost, fine knock (Mode 22).
             // ════════════════════════════════════════════════════
             if (loopCount % 3 == 0) {
-                // Mode 01 PIDs with no spec Mode 22 equivalent
+                // Mode 01 — engine vitals
                 setHeader("7DF", "7E8");
                 parseLoad(sendCmd("0104"));
+                parseCoolant(sendCmd("0105"));
                 parseOilTemp(sendCmd("015C"));
-                parseCatTemp(sendCmd("013C"));
+                parseTiming(sendCmd("010E"));
+                parseMAF(sendCmd("0110"));
                 parseSTFT(sendCmd("0106"));
                 parseLTFT(sendCmd("0107"));
 
-                // Mode 22 ECU — spec §7 knock health + §6 turbo
+                // Mode 22 ECU — knock health, turbo, supplemental channels
                 setHeader("7E0", "7E8");
-                parseKnockCorr(sendCmdTimeout("2210AF", CMD_TIMEOUT_SLOW));      // was 223018
-                parseWastegate(sendCmdTimeout("2210A8", CMD_TIMEOUT_SLOW));      // was 2210C9
+                parseThrottleAngle(sendCmdTimeout("221022", CMD_TIMEOUT_SLOW));  // throttle body °
+                parseBoostDirect(sendCmdTimeout("2210A6", CMD_TIMEOUT_SLOW));    // direct boost psi
+                parseKnockCorr(sendCmdTimeout("2210AF", CMD_TIMEOUT_SLOW));
+                parseWastegate(sendCmdTimeout("2210A8", CMD_TIMEOUT_SLOW));
                 parseIAT(sendCmdTimeout("22101F", CMD_TIMEOUT_SLOW));
                 parseTargetBoost(sendCmdTimeout("2210A7", CMD_TIMEOUT_SLOW));
                 parseFineKnock(sendCmdTimeout("2210B0", CMD_TIMEOUT_SLOW));
@@ -476,22 +475,31 @@ public class OBDManager {
                || u.contains("7F22") || u.contains("7F21"); // UDS negative response to mode 22/21
     }
 
-    // ── Mode 22 Tier 1 burst parsers (all on 7E0/7E8) ────────────
-    // Formulas are best-guess for FA20DIT — verify on first car run.
+    // ── Mode 01 parsers ───────────────────────────────────────────
 
     private void parseRPM(String r) {
-        // 221027 — Engine RPM (Mode 22 burst). TODO: verify formula on car.
-        if (isError(r)) return;
-        int v = m22word(r); if (v < 0) return;
-        data.rpm = v / 4f;  // likely same encoding as Mode 01 (0.25 RPM/count)
+        r = strip(r); if (isError(r) || r.length() < 8) return;
+        int a = byteAt(r, 2), b = byteAt(r, 3);
+        if (a < 0 || b < 0) return;
+        data.rpm = (a * 256f + b) / 4f;
     }
 
     private void parseSpeed(String r) {
-        // 221028 — Vehicle Speed km/h. TODO: verify formula on car.
-        if (isError(r)) return;
-        int a = m22byte(r, 0); if (a < 0) return;
-        data.speedKph = a;  // 1 km/h per count (same as Mode 01)
+        r = strip(r); if (isError(r) || r.length() < 6) return;
+        int a = byteAt(r, 2); if (a < 0) return;
+        data.speedKph = a;
     }
+
+    private void parsePedal(String r) {
+        // PID 0145 = Relative Accelerator Pedal Position
+        r = strip(r); if (isError(r) || r.length() < 6) return;
+        int a = byteAt(r, 2); if (a < 0) return;
+        data.pedalPct = a / 255f * 100f;
+    }
+
+    // ── Mode 22 ECU supplemental parsers ─────────────────────────
+    // These are unverified on the FA20DIT — used as supplements in
+    // Tier 2 alongside Mode 01; will not break the app if they fail.
 
     private void parseThrottleAngle(String r) {
         // 221022 — Throttle body angle %. TODO: verify formula on car.
