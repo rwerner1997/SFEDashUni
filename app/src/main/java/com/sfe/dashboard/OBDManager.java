@@ -303,6 +303,7 @@ public class OBDManager {
                 parseBattery(sendCmd("ATRV"));
 
                 setHeader("7E0", "7E8");
+                parseCVTTemp(sendCmdTimeout("221021", CMD_TIMEOUT_SLOW));        // ECM, not TCU — confirmed via terminal
                 parseTargetMAP(sendCmdTimeout("223050", CMD_TIMEOUT_SLOW));
                 parseBattTemp(sendCmdTimeout("22309A", CMD_TIMEOUT_SLOW));
                 // Roughness only needed on ROUGHNESS page (4)
@@ -335,10 +336,9 @@ public class OBDManager {
             // TIER 3b — TCU slow: every 10th loop, offset by 5
             // Always poll CVT temp (shown on TEMPS page); gate detail behind CVT page (3)
             // ════════════════════════════════════════════════════
-            if (loopCount % 10 == 5) {
+            if (loopCount % 10 == 5 && data.activePage == 3) {
                 setHeaderForce("7E1", "7E9");  // force re-send every time: ELM clones may silently drop ATCRA7E9
-                parseCVTTemp(sendCmdTimeout("221017", CMD_TIMEOUT_SLOW));        // was 221021 (spec §9) — reverted; 221017 confirmed working on car
-                if (data.activePage == 3) {
+                {
                     parseLockup(sendCmdTimeout("221045", CMD_TIMEOUT_SLOW));
                     parseTransfer(sendCmdTimeout("221065", CMD_TIMEOUT_SLOW));
                     parseTurbineRpm(sendCmdTimeout("221067", CMD_TIMEOUT_SLOW));
@@ -788,7 +788,8 @@ public class OBDManager {
     // ── Mode 22 TCU parsers ────────────────────────────────────────
 
     private void parseCVTTemp(String r) {
-        // 221017 — CVT fluid temperature °C (reverted from spec §9 221021 — that PID not responding)
+        // 221021 — CVT fluid temperature °C — lives on ECM (7E0/7E8), not TCU
+        // Terminal confirmed: 221017 returns 7F2231 on both ECM+TCU; 221021 works on ECM only
         if (isError(r)) return;
         int a = m22byte(r, 0); if (a < 0) return;
         float v = a - 40f;
