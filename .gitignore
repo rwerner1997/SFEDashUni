@@ -13,3 +13,4 @@ local.properties
 # Android
 *.apk
 *.aab
+javac.*.args
