@@ -280,7 +280,7 @@ public class OBDManager {
                 setHeader("7E0", "7E8");
                 parseThrottleAngle(sendCmdTimeout("221022", CMD_TIMEOUT_SLOW));  // throttle body °
                 parseBoostDirect(sendCmdTimeout("2210A6", CMD_TIMEOUT_SLOW));    // direct boost psi
-                parseKnockCorr(sendCmdTimeout("2210AF", CMD_TIMEOUT_SLOW));
+                parseKnockCorr(sendCmdTimeout("223018", CMD_TIMEOUT_SLOW));      // was 2210AF (spec §7) — reverted; 223018 confirmed working
                 parseWastegate(sendCmdTimeout("2210A8", CMD_TIMEOUT_SLOW));
                 parseIAT(sendCmdTimeout("22101F", CMD_TIMEOUT_SLOW));
                 parseTargetBoost(sendCmdTimeout("2210A7", CMD_TIMEOUT_SLOW));
@@ -303,9 +303,11 @@ public class OBDManager {
                 parseBattery(sendCmd("ATRV"));
 
                 setHeader("7E0", "7E8");
+                parseCVTTemp(sendCmdTimeout("221021", CMD_TIMEOUT_SLOW));        // ECM, not TCU — confirmed via terminal
                 parseTargetMAP(sendCmdTimeout("223050", CMD_TIMEOUT_SLOW));
                 parseBattTemp(sendCmdTimeout("22309A", CMD_TIMEOUT_SLOW));
                 // Roughness only needed on ROUGHNESS page (4)
+                // PIDs confirmed by ScanGauge RM1-RM4 for FA20DIT WRX (firmware 4.22+)
                 if (ap == 4) {
                     parseRoughness(sendCmdTimeout("223062", CMD_TIMEOUT_SLOW), 1);
                     parseRoughness(sendCmdTimeout("223048", CMD_TIMEOUT_SLOW), 2);
@@ -335,16 +337,15 @@ public class OBDManager {
             // TIER 3b — TCU slow: every 10th loop, offset by 5
             // Always poll CVT temp (shown on TEMPS page); gate detail behind CVT page (3)
             // ════════════════════════════════════════════════════
-            if (loopCount % 10 == 5) {
+            if (loopCount % 10 == 5 && data.activePage == 3) {
                 setHeaderForce("7E1", "7E9");  // force re-send every time: ELM clones may silently drop ATCRA7E9
-                parseCVTTemp(sendCmdTimeout("221021", CMD_TIMEOUT_SLOW));        // shown on TEMPS — always poll
-                if (data.activePage == 3) {
+                {
                     parseLockup(sendCmdTimeout("221045", CMD_TIMEOUT_SLOW));
                     parseTransfer(sendCmdTimeout("221065", CMD_TIMEOUT_SLOW));
                     parseTurbineRpm(sendCmdTimeout("221067", CMD_TIMEOUT_SLOW));
-                    parsePrimaryRpm(sendCmdTimeout("221151", CMD_TIMEOUT_SLOW));     // was 22300E — input shaft
-                    parseSecondaryRpm(sendCmdTimeout("221152", CMD_TIMEOUT_SLOW));   // was 2230D0 — output shaft
-                    parseGearRatioAct(sendCmdTimeout("221150", CMD_TIMEOUT_SLOW));   // was 2230DA
+                    parsePrimaryRpm(sendCmdTimeout("22300E", CMD_TIMEOUT_SLOW));     // was 221151 (spec §9) — reverted
+                    parseSecondaryRpm(sendCmdTimeout("2230D0", CMD_TIMEOUT_SLOW));   // was 221152 (spec §9) — reverted
+                    parseGearRatioAct(sendCmdTimeout("2230DA", CMD_TIMEOUT_SLOW));   // was 221150 (spec §9) — reverted
                     parseGearRatioTgt(sendCmdTimeout("2230F8", CMD_TIMEOUT_SLOW));
                     parseTorqueConvSlip(sendCmdTimeout("221153", CMD_TIMEOUT_SLOW)); // spec §9 — direct slip rpm
                     parsePriPulley(sendCmdTimeout("2210D2", CMD_TIMEOUT_SLOW));
@@ -675,8 +676,9 @@ public class OBDManager {
     }
 
     private void parseKnockCorr(String r) {
-        // 2210AF — feedback knock correction degrees (spec §7; was 223018)
-        // Range: 0→-32°, 128→0°, 255→31.75° (retard is negative)
+        // 223018 — feedback knock correction degrees (ScanGauge confirmed for FA20DIT WRX)
+        // Note: 2210AF = Engine Oil Temperature (ScanGauge EOT), NOT knock correction
+        // ScanGauge MTH 00010004FFE0: Range: 0→-32°, 128→0°, 255→31.75° (retard is negative)
         if (isError(r)) return;
         int a = m22byte(r, 0); if (a < 0) return;
         data.knockCorr = a / 4f - 32f;
@@ -788,7 +790,8 @@ public class OBDManager {
     // ── Mode 22 TCU parsers ────────────────────────────────────────
 
     private void parseCVTTemp(String r) {
-        // 221021 — CVT fluid temperature °C (spec §9; was 221017)
+        // 221021 — CVT fluid temperature °C — lives on ECM (7E0/7E8), not TCU
+        // Terminal confirmed: 221017 returns 7F2231 on both ECM+TCU; 221021 works on ECM only
         if (isError(r)) return;
         int a = m22byte(r, 0); if (a < 0) return;
         float v = a - 40f;
@@ -831,8 +834,8 @@ public class OBDManager {
     }
 
     private void parseGearRatioAct(String r) {
-        // 221150 — CVT ratio actual (spec §9; was 2230DA). TODO: verify formula on car.
-        // Assumes word / 1000 = ratio (e.g. 2500 = 2.500, 400 = 0.400)
+        // 2230DA — CVT ratio actual (ScanGauge confirmed for Subaru CVT; was spec §9 221150).
+        // Word assumed to encode ratio * 1000 (e.g. 2500 = 2.500). TODO: verify on car.
         if (isError(r)) return;
         int v = m22word(r); if (v < 0) return;
         data.gearRatioAct = v / 1000f;
