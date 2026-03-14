@@ -1,4 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
-    android:src="@drawable/sfe"
-    android:gravity="center"/>
+<!--
+    Adaptive icon foreground — 108×108dp canvas, 72×72dp safe zone.
+    18dp inset on all sides places the logo bitmap within the safe zone so it
+    is not clipped by circular/squircle launcher masks on API 26+ devices.
+    Legacy devices (< API 26) use the density-specific mipmap PNGs directly.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:top="18dp"
+        android:left="18dp"
+        android:right="18dp"
+        android:bottom="18dp">
+        <bitmap
+            android:src="@drawable/sfe"
+            android:gravity="center"/>
+    </item>
+</layer-list>

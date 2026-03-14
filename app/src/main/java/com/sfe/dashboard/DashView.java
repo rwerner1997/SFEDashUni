@@ -445,8 +445,8 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         engLastMs = now;
         dt = Math.min(dt, 0.050f);
         float rpm = DashData.get().rpm;
-        // Stop animation when engine is not running (ignition on, engine off)
-        if (rpm < 300f) {
+        // Stop animation when engine is not running or data not yet received
+        if (Float.isNaN(rpm) || rpm < 300f) {
             engRpmSmooth = 0f;
             return;
         }
@@ -460,7 +460,8 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         DashData d = DashData.get();
         // Estimate longitudinal G from speed delta (placeholder — real app would use accelerometer)
         // For now just use a simple proxy from throttle/load
-        float targetG = (d.pedalPct / 100f * 0.4f) - 0.05f;
+        float pedal = Float.isNaN(d.pedalPct) ? 0f : d.pedalPct;
+        float targetG = (pedal / 100f * 0.4f) - 0.05f;
         gLong += (targetG - gLong) * 0.12f;
         gSmooth += (gLong - gSmooth) * 0.15f;
         // Shift trail

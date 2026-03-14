@@ -35,7 +35,8 @@ public class OBDManager {
     private static final String TARGET_DEVICE_NAME = "OBDII";
 
     private static final int CMD_TIMEOUT_MS   = 250;  // per-command timeout — BT RTT ~50-100ms, 2.5× headroom
-    private static final int CMD_TIMEOUT_SLOW = 350;  // for Mode 22 PIDs — allow one retry cycle
+    private static final int CMD_TIMEOUT_SLOW = 500;  // for Mode 22 PIDs — generous headroom for ECU response
+    private static final int CMD_TIMEOUT_ROUGH = 600; // for 2230xx roughness PIDs — sometimes need extra time
     private static final int CONNECT_RETRY_S  = 5;    // seconds between reconnect attempts
 
     private final Context    ctx;
@@ -302,17 +303,21 @@ public class OBDManager {
                 parseFuelLevel(sendCmd("012F"));   // fuel tank level (Mode 01)
                 parseBattery(sendCmd("ATRV"));
 
-                setHeader("7E0", "7E8");
+                // Force ATSH + ATCRA re-send: cheap ELM clones may silently reset ATCRA
+                // when ATSH changes (e.g. 7DF→7E0), leaving the filter stale and causing
+                // the ECU response to be missed or mixed with bus noise from other ECUs.
+                setHeaderForce("7E0", "7E8");
                 parseCVTTemp(sendCmdTimeout("221021", CMD_TIMEOUT_SLOW));        // ECM, not TCU — confirmed via terminal
                 parseTargetMAP(sendCmdTimeout("223050", CMD_TIMEOUT_SLOW));
                 parseBattTemp(sendCmdTimeout("22309A", CMD_TIMEOUT_SLOW));
                 // Roughness only needed on ROUGHNESS page (4)
                 // PIDs confirmed by ScanGauge RM1-RM4 for FA20DIT WRX (firmware 4.22+)
+                // 2230xx range needs extra timeout — ECU response latency slightly higher
                 if (ap == 4) {
-                    parseRoughness(sendCmdTimeout("223062", CMD_TIMEOUT_SLOW), 1);
-                    parseRoughness(sendCmdTimeout("223048", CMD_TIMEOUT_SLOW), 2);
-                    parseRoughness(sendCmdTimeout("223068", CMD_TIMEOUT_SLOW), 3);
-                    parseRoughness(sendCmdTimeout("22304A", CMD_TIMEOUT_SLOW), 4);
+                    parseRoughness(sendCmdTimeout("223062", CMD_TIMEOUT_ROUGH), 1);
+                    parseRoughness(sendCmdTimeout("223048", CMD_TIMEOUT_ROUGH), 2);
+                    parseRoughness(sendCmdTimeout("223068", CMD_TIMEOUT_ROUGH), 3);
+                    parseRoughness(sendCmdTimeout("22304A", CMD_TIMEOUT_ROUGH), 4);
                 }
                 // OCV only needed on CAM/VVT page (9)
                 if (ap == 9) {
