@@ -70,7 +70,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
     };
 
     // ── History buffers ──────────────────────────────────────────
-    private final float[][] hist = new float[11][80];
+    private final float[][] hist = new float[8][80];
 
     // ── Render thread ────────────────────────────────────────────
     private RenderThread renderThread;
@@ -192,37 +192,19 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
                 pid("CYL 2","",0,100,1, fl(0,10,30),fl(10,30,9e9f),cs("green","yellow","red")),
                 pid("CYL 3","",0,100,1, fl(0,10,30),fl(10,30,9e9f),cs("green","yellow","red")),
                 pid("CYL 4","",0,100,1, fl(0,10,30),fl(10,30,9e9f),cs("green","yellow","red"))),
-            // ── Page 5: FUEL ─────────────────────────────────────────
-            new PageDef("FUEL","AFR · DUTY · TRIMS","arc",0,
-                pid("AFR LAMBDA","λ",0.7f,1.4f,3, fl(0.7f,0.85f,0.95f,1.05f),fl(0.85f,0.95f,1.05f,9e9f),cs("red","orange","yellow","green")),
-                pid("INJ DUTY","%",0,100,1,         fl(0,40,70,85),fl(40,70,85,9e9f),cs("green","cyan","yellow","red")),
-                pid("STFT BANK 1","%",-30,30,1,    fl(-5,5),fl(5,9e9f),cs("green","yellow")),
-                pid("LTFT BANK 1","%",-15,15,1,    fl(-5,5),fl(5,9e9f),cs("green","yellow"))),
-            // ── Page 6: G-FORCE ──────────────────────────────────────
+            // ── Page 5: G-FORCE ──────────────────────────────────────
             new PageDef("G-FORCE","DYNAMICS","gforce",0,
                 pid("ACCEL (LONG)","G",-1.2f,1.2f,3, fl(-0.15f,0.15f,0.4f),fl(0.15f,0.4f,9e9f),cs("cyan","green","yellow")),
                 pid("VEHICLE SPEED","MPH",0,100,0,   fl(0,75,90),fl(75,90,9e9f),cs("green","yellow","red")),
                 pid("ENGINE RPM","RPM",0,7000,0,     fl(0,800,5000,6500),fl(800,5000,6500,9e9f),cs("blue","green","yellow","red")),
                 pid("ENGINE LOAD","%",0,100,1,       fl(0,40,70,90),fl(40,70,90,9e9f),cs("green","yellow","orange","red"))),
-            // ── Page 7: TIMING ───────────────────────────────────────
+            // ── Page 6: TIMING ───────────────────────────────────────
             new PageDef("TIMING","KNOCK · ADVANCE · DAM","arc",0,
                 pid("IGN TIMING","°",-15,45,1,  fl(-15,0,8,20,35),fl(0,8,20,35,9e9f),cs("red","orange","yellow","green","cyan")),
                 pid("KNOCK CORR","°",-6,0,2,    fl(-6,-3,-1.5f,-0.5f),fl(-3,-1.5f,-0.5f,9e9f),cs("red","orange","yellow","green")),
                 pid("FINE KNOCK","°",-6,0,2,    fl(-6,-3,-1.5f,-0.5f),fl(-3,-1.5f,-0.5f,9e9f),cs("red","orange","yellow","green")),
                 pid("DAM RATIO","",0f,1f,2,      fl(0f,0.7f,0.9f),fl(0.7f,0.9f,9e9f),cs("red","orange","green"))),
-            // ── Page 8: IGNITION ─────────────────────────────────────
-            new PageDef("IGNITION","BATTERY · BARO","arc",1,
-                pid("IGN TIMING","°",-15,45,1,  fl(-15,0,8,20,35),fl(0,8,20,35,9e9f),cs("red","orange","yellow","green","cyan")),
-                pid("BATTERY","V",10,16,2,       fl(0,11.5f,12.4f,14.8f),fl(11.5f,12.4f,14.8f,9e9f),cs("red","yellow","green","yellow")),
-                pid("BARO PRESS","PSI",10,16,2,  fl(0,11,14),fl(11,14,9e9f),cs("red","green","yellow")),
-                pid("BATT TEMP","°F",-40,176,0,  fl(-40,32,104,140),fl(32,104,140,9e9f),cs("blue","green","yellow","red"))),
-            // ── Page 9: CAM / VVT ────────────────────────────────────
-            new PageDef("CAM/VVT","OCV · AVCS · ACTUATORS","arc",0,
-                pid("OCV INT L","%",0,100,1, fl(0,10,35,65,85),fl(10,35,65,85,9e9f),cs("blue","cyan","green","yellow","orange")),
-                pid("OCV INT R","%",0,100,1, fl(0,10,35,65,85),fl(10,35,65,85,9e9f),cs("blue","cyan","green","yellow","orange")),
-                pid("VVT ADV L","°",0,50,1,  fl(0,5,20,40),fl(5,20,40,9e9f),cs("blue","cyan","green","yellow")),
-                pid("VVT ADV R","°",0,50,1,  fl(0,5,20,40),fl(5,20,40,9e9f),cs("blue","cyan","green","yellow"))),
-            // ── Page 10: SESSION (last) ──────────────────────────────
+            // ── Page 7: SESSION (last) ──────────────────────────────
             new PageDef("SESSION","PEAK VALUES","session",-1,
                 pid("BOOST","PSI",-12,22,2,  fl(0),fl(9e9f),cs("cyan")),
                 pid("RPM","RPM",0,7000,0,    fl(0),fl(9e9f),cs("green")),
@@ -267,7 +249,16 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
                 Thread.sleep(200);
                 for (int i = 0; i < BOOT_CHECKS.length; i++) {
                     bootLinesShown = i + 1;
-                    Thread.sleep(i < 3 ? 220 : 280);
+                    if (i == 3) {
+                        // "CONNECTING" line — wait for real BT connection, max 10 s
+                        long deadline = System.currentTimeMillis() + 10_000L;
+                        while (!DashData.get().connected && System.currentTimeMillis() < deadline) {
+                            Thread.sleep(100);
+                        }
+                        Thread.sleep(200); // brief pause so line is readable
+                    } else {
+                        Thread.sleep(i < 3 ? 220 : 280);
+                    }
                 }
                 bootDone = true;
                 Thread.sleep(1200);
@@ -499,12 +490,9 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             {d.boostPsi(), d.turboSpeedRpm, d.wastegatePct, d.targetBoostPsi},             // 2 BOOST/TURBO
             {d.gearRatioAct, d.cvtTempF(), d.lockupPct, d.cvtSlipPct()},                  // 3 CVT
             {d.rough1, d.rough2, d.rough3, d.rough4},                                     // 4 ROUGHNESS
-            {d.afrLambda, d.injDutyCyclePct, d.stftPct, d.ltftPct},                       // 5 FUEL
-            {gLong, d.speedMph(), d.rpm, d.loadPct},                                      // 6 GFORCE
-            {d.timingDeg, d.knockCorr, d.fineKnockDeg, d.damRatio},                       // 7 TIMING
-            {d.timingDeg, d.battV, d.baroPsi(), d.battTempF()},                           // 8 IGNITION
-            {d.ocvIntakeL, d.ocvIntakeR, d.vvtAngleL, d.vvtAngleR},                      // 9 CAM/VVT
-            {d.peakBoostPsi, d.peakRpm, d.peakTimingDeg, d.peakLoadPct,                   // 10 SESSION
+            {gLong, d.speedMph(), d.rpm, d.loadPct},                                      // 5 G-FORCE
+            {d.timingDeg, d.knockCorr, d.fineKnockDeg, d.damRatio},                       // 6 TIMING
+            {d.peakBoostPsi, d.peakRpm, d.peakTimingDeg, d.peakLoadPct,                   // 7 SESSION
              d.peakSpeedMph, d.worstKnockCorr, d.peakMafGs, d.peakEstHp, d.peakCatTempF},
         };
     }
@@ -709,7 +697,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
     private static final float GM_CX=160,GM_CY=118,GM_R=72,GM_MG=1.0f;
 
     private void drawGMeter(Canvas c, Theme t) {
-        int col = bandColor(PAGES[6].pids[0], gLong, t);
+        int col = bandColor(PAGES[5].pids[0], gLong, t);
         fillP.setStyle(Paint.Style.FILL); fillP.setColor(t.panel); fillP.setAlpha(255);
         c.drawCircle(GM_CX, GM_CY, GM_R, fillP);
         for (float g : new float[]{0.25f, 0.5f, 0.75f, 1.0f}) {
@@ -921,7 +909,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         int eta=(int)((1-wpct)*240); String etaS=wdone?"WARM":(eta>=60?eta/60+"m"+(eta%60)+"s":eta+"s");
         String[] slbls={"RPM","SPD","WRM"};
         float[] svals={d.rpm, d.speedMph(), wdone?1f:wpct};
-        int[] scols={bandColor(PAGES[0].pids[0],d.rpm,t), bandColor(PAGES[6].pids[1],d.speedMph(),t), wdone?t.green:t.yellow};
+        int[] scols={bandColor(PAGES[0].pids[0],d.rpm,t), bandColor(PAGES[5].pids[1],d.speedMph(),t), wdone?t.green:t.yellow};
         String[] sstrs={fmtV(d.rpm,0), fmtV(d.speedMph(),0), etaS};
         int tw2=LW/3;
         for (int i=0;i<3;i++) {
@@ -1271,7 +1259,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         // Status strip — RPM + Speed (ends at y=458 to leave room for dot strip at y=460)
         DashData ds=DashData.get();
         fillRect(c,0,396,LW,64, t.dim, 1f);
-        int[] scols2={Float.isNaN(ds.rpm)?ac(t.label,0.35f):bandColor(PAGES[0].pids[0],ds.rpm,t), Float.isNaN(ds.speedMph())?ac(t.label,0.35f):bandColor(PAGES[6].pids[1],ds.speedMph(),t), ds.connected?t.green:t.orange};
+        int[] scols2={Float.isNaN(ds.rpm)?ac(t.label,0.35f):bandColor(PAGES[0].pids[0],ds.rpm,t), Float.isNaN(ds.speedMph())?ac(t.label,0.35f):bandColor(PAGES[5].pids[1],ds.speedMph(),t), ds.connected?t.green:t.orange};
         String[] slbls2={"RPM","MPH","OBD"}; String[] svals2={Float.isNaN(ds.rpm)?"---":String.valueOf(Math.round(ds.rpm)),Float.isNaN(ds.speedMph())?"---":String.valueOf(Math.round(ds.speedMph())),ds.btStatus};
         for(int i=0;i<3;i++){
             int sx3=i*(LW/3);
@@ -1337,7 +1325,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
 
         PidDef rpmPid=PAGES[0].pids[0], bstPid=PAGES[2].pids[0];
         PidDef lodPid=PAGES[0].pids[1], oilPid=PAGES[1].pids[1];
-        PidDef knkPid=PAGES[7].pids[1];  // index 1 = KNOCK CORR (was 3 before timing page reshuffle)
+        PidDef knkPid=PAGES[6].pids[1];  // index 1 = KNOCK CORR on TIMING page (index 6)
 
         int bstCol=Float.isNaN(boost)?ac(t.label,0.35f):bandColor(bstPid,boost,t);
         int lodCol=Float.isNaN(load)?ac(t.label,0.35f):bandColor(lodPid,load,t);

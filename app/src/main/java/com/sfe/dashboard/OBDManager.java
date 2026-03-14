@@ -319,22 +319,10 @@ public class OBDManager {
                     parseRoughness(sendCmdTimeout("223068", CMD_TIMEOUT_ROUGH), 3);
                     parseRoughness(sendCmdTimeout("22304A", CMD_TIMEOUT_ROUGH), 4);
                 }
-                // OCV only needed on CAM/VVT page (9)
-                if (ap == 9) {
-                    parseOcvIntakeL(sendCmdTimeout("2210BB", CMD_TIMEOUT_SLOW));
-                    parseOcvIntakeR(sendCmdTimeout("22109B", CMD_TIMEOUT_SLOW));
-                    parseOcvExhL(sendCmdTimeout("2210EF", CMD_TIMEOUT_SLOW));
-                    parseOcvExhR(sendCmdTimeout("2210CF", CMD_TIMEOUT_SLOW));
-                }
                 // Turbo detail only needed on BOOST/TURBO page (2)
                 if (ap == 2) {
                     parseTurboSpeed(sendCmdTimeout("2210A9", CMD_TIMEOUT_SLOW));
                     parseChargeAirTemp(sendCmdTimeout("2210AA", CMD_TIMEOUT_SLOW));
-                }
-                // Fuel/alt stats used on FUEL page (5)
-                if (ap == 5) {
-                    parseAltDuty(sendCmdTimeout("221093", CMD_TIMEOUT_SLOW));
-                    parseFuelPump(sendCmdTimeout("2210B3", CMD_TIMEOUT_SLOW));
                 }
             }
 
@@ -359,34 +347,11 @@ public class OBDManager {
             }
 
             // ════════════════════════════════════════════════════
-            // TIER 3c — ECU VVT + actuators: every 10th loop, offset 2
-            // Only needed on CAM/VVT page (9)
-            // ════════════════════════════════════════════════════
-            if (loopCount % 10 == 2 && data.activePage == 9) {
-                setHeader("7E0", "7E8");
-                parseVvtAngleR(sendCmdTimeout("221099", CMD_TIMEOUT_SLOW));
-                parseVvtAngleL(sendCmdTimeout("2210B9", CMD_TIMEOUT_SLOW));
-                parseRadFan(sendCmdTimeout("2210E3", CMD_TIMEOUT_SLOW));
-                parseThrottleMotor(sendCmdTimeout("22105F", CMD_TIMEOUT_SLOW));
-            }
-
-            // ════════════════════════════════════════════════════
-            // TIER 3d — ECU accessories: every 10th loop, offset 7
-            // ScanGauge PIDs: CPC, OSV valves, fuel injection PW,
-            // fuel tank pressure, EGR steps
+            // TIER 3d — DAM: every 10th loop, offset 7
             // ════════════════════════════════════════════════════
             if (loopCount % 10 == 7) {
                 setHeader("7E0", "7E8");
-                parseInjPulse(sendCmdTimeout("2210C0", CMD_TIMEOUT_SLOW));       // was 2210A3
-                parseInjDutyCycle(sendCmdTimeout("2210C1", CMD_TIMEOUT_SLOW));   // spec §8 — new
-                parseAFR(sendCmdTimeout("2210C3", CMD_TIMEOUT_SLOW));            // spec §8 — new
-                parseTargetAFR(sendCmdTimeout("2210C4", CMD_TIMEOUT_SLOW));      // spec §8 — new
-                parseHPFP(sendCmdTimeout("2210C7", CMD_TIMEOUT_SLOW));           // spec §8 — new
-                parseCpcValve(sendCmdTimeout("2210CB", CMD_TIMEOUT_SLOW));
-                parseOsvL(sendCmdTimeout("2210E5", CMD_TIMEOUT_SLOW));
-                parseOsvR(sendCmdTimeout("2210C5", CMD_TIMEOUT_SLOW));
-                parseFuelTankPress(sendCmdTimeout("22108F", CMD_TIMEOUT_SLOW));
-                parseDAM(sendCmdTimeout("2210B1", CMD_TIMEOUT_SLOW));            // was egrSteps
+                parseDAM(sendCmdTimeout("2210B1", CMD_TIMEOUT_SLOW));
             }
 
             data.updatePeaks();

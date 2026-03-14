@@ -13,6 +13,6 @@
         android:bottom="18dp">
         <bitmap
             android:src="@drawable/sfe"
-            android:gravity="center"/>
+            android:gravity="fill"/>
     </item>
 </layer-list>
