@@ -40,16 +40,17 @@ Source: ScanGauge official XGauge page for Subaru Impreza WRX + Outback CVT.
 
 | PID | Parameter | Formula | Notes |
 |-----|-----------|---------|-------|
-| 223018 | Feedback Knock Correction (°) | `byte / 4 - 32` | ScanGauge KRC confirmed |
+| 223018 | Feedback Knock Correction (°) | `byte / 4 - 32` | **Returns 7F2231 (requestOutOfRange) on every poll on this car — PID not supported.** `knockCorr` always NaN; knock alert will never fire from this source. |
 | 2210AF | **Engine Oil Temp** (°F) | `byte * 9/5 - 40` | ScanGauge EOT — **NOT knock corr** |
-| 2210B0 | Fine Knock Learning (°) | `byte / 4 - 32` | No public ScanGauge code; unverified |
-| 2210B1 | DAM — Dynamic Advance Multiplier | `byte / 255` (TODO verify) | No public ScanGauge code; unverified |
+| 2210B0 | Fine Knock Learning (°) | `byte / 4 - 32` | Works on this ECU; unverified formula. Log shows values ~0x28(-22°) at idle/light load and 0x9B-0x9D(+6.75–7.25°) occasionally. Possibly correct. |
+| 2210B1 | DAM — Dynamic Advance Multiplier | `byte / 255` (TODO verify) | Log shows 0x00(0) and 0x03(3) → DAM near 0% indicating ECU has pulled timing historically. |
 | 223062 | Roughness Cyl 1 | raw byte | ScanGauge RM1 confirmed |
 | 223048 | Roughness Cyl 2 | raw byte | ScanGauge RM2 confirmed |
 | 223068 | Roughness Cyl 3 | raw byte | ScanGauge RM3 confirmed |
 | 22304A | Roughness Cyl 4 | raw byte | ScanGauge RM4 confirmed |
 | 2210A6 | Boost pressure (psi) | TODO verify | Direct boost sensor |
-| 221021 | CVT fluid temp (°C) | `byte - 40` | On ECM (7E0), confirmed via terminal |
+| 221021 | CVT fluid temp (°C) | `byte - 40` | **⚠ RETURNS STATIC DATA.** Log confirmed response is always `62102137EFE4CD` (4 data bytes, byte[0]=0x37 forever) — value never changes regardless of engine state. This PID does NOT return dynamic CVT fluid temp on this ECU. Need to find correct PID. |
+| 22101F | IAT | `byte - 40` | **Returns 7F2231 on every poll on this car — PID not supported.** `iatC` always NaN. |
 
 ## Confirmed Mode 22 PIDs (TCU 7E1)
 Source: ScanGauge Outback CVT XGauge page.
@@ -68,7 +69,10 @@ Source: ScanGauge Outback CVT XGauge page.
 ## Known Wrong PIDs (do not use)
 - `2210AF` for knock correction — it's engine oil temperature.
 - `221151/221152/221150` for CVT shaft speeds/ratio — these are spec PIDs that don't respond on this TCU; use `22300E/2230D0/2230DA`.
-- `221017` for CVT temp from TCU — returns 7F2231 (error) on this vehicle; use `221021` on ECM.
+- `221017` for CVT temp from TCU — returns 7F2231 (error) on this vehicle.
+- `221021` for CVT temp from ECM — returns a STATIC 4-byte response (`37EFE4CD`) that never changes during driving. Not a live sensor. Correct CVT temp PID is unknown; needs investigation.
+- `223018` for knock correction — returns 7F2231 (requestOutOfRange) on every poll. PID is not supported on this ECU at this time.
+- `22101F` for IAT — returns 7F2231 on every poll. Not supported.
 
 ## Pages (DashView.java — `PAGES[]` array, index 0–6)
 ```

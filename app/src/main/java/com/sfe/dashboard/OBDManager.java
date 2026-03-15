@@ -635,8 +635,10 @@ public class OBDManager {
         // 223018 — feedback knock correction degrees (ScanGauge confirmed for FA20DIT WRX)
         // Note: 2210AF = Engine Oil Temperature (ScanGauge EOT), NOT knock correction
         // ScanGauge MTH 00010004FFE0: Range: 0→-32°, 128→0°, 255→31.75° (retard is negative)
-        if (isError(r)) return;
-        int a = m22byte(r, 0); if (a < 0) return;
+        // IMPORTANT: clear to NaN on error — do NOT retain stale negative values, as a stuck
+        // knockCorr < -2.5 would cause the knock alert to fire on every render frame forever.
+        if (isError(r)) { data.knockCorr = Float.NaN; return; }
+        int a = m22byte(r, 0); if (a < 0) { data.knockCorr = Float.NaN; return; }
         data.knockCorr = a / 4f - 32f;
     }
 
@@ -657,8 +659,9 @@ public class OBDManager {
 
     private void parseFineKnock(String r) {
         // 2210B0 — fine knock learning degrees (spec §7)
-        if (isError(r)) return;
-        int a = m22byte(r, 0); if (a < 0) return;
+        // Clear to NaN on error for the same reason as parseKnockCorr above.
+        if (isError(r)) { data.fineKnockDeg = Float.NaN; return; }
+        int a = m22byte(r, 0); if (a < 0) { data.fineKnockDeg = Float.NaN; return; }
         data.fineKnockDeg = a / 4f - 32f;
     }
 

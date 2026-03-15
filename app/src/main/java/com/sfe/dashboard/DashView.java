@@ -33,6 +33,10 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
     private volatile String  alertSub = "";
     private volatile String  alertVal = "";
     private volatile String  alertSev = "red";
+    // After the user dismisses an alert, wait this long before re-triggering any alert.
+    // Prevents an alert from immediately re-appearing if its condition is still true.
+    private long alertDismissedMs = 0;
+    private static final long ALERT_COOLDOWN_MS = 30_000;
 
     // ── Engine animation ─────────────────────────────────────────
     private float  engAngle = 0f;
@@ -267,7 +271,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
     public void prevTheme()      { themeIdx = (themeIdx - 1 + THEMES.length) % THEMES.length; }
     public void toggleDriveMode(){ driveOn = !driveOn; }
     public void toggleAutoScroll(){ autoScr = !autoScr; }
-    public void dismissAlert()   { alertOn = false; }
+    public void dismissAlert()   { alertOn = false; alertDismissedMs = System.currentTimeMillis(); }
     public void triggerKnockAlert() {
         DashData d = DashData.get();
         alertMsg = "SIGNIFICANT KNOCK"; alertSev = d.knockCorr < -4f ? "red" : "orange";
@@ -390,7 +394,8 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
 
         // Auto-trigger alerts from live data — priority-ordered, one at a time
         DashData d = DashData.get();
-        if (!alertOn && d.connected) {
+        if (!alertOn && d.connected
+                && System.currentTimeMillis() - alertDismissedMs > ALERT_COOLDOWN_MS) {
             if (d.knockCorr < -2.5f) {
                 triggerKnockAlert();
             } else if (d.coolantF() > 225f) {
