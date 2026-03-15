@@ -334,15 +334,16 @@ public class OBDManager {
                 // when ATSH changes (e.g. 7DF→7E0), leaving the filter stale and causing
                 // the ECU response to be missed or mixed with bus noise from other ECUs.
                 setHeaderForce("7E0", "7E8");
-                // 221021 returns a STATIC 4-byte response (62102137EFE4CD) that never changes —
-                // it does not reflect live CVT fluid temperature on this ECU.  Setting NaN
-                // shows "---" in the dashboard rather than the misleading stuck 59°F value.
-                // TODO: identify the correct CVT temp PID.  TCU candidates from PID scan:
-                //   TCU 22104F → 0x73 at scan time (byte-40 = 75°C / 167°F, plausible operating temp)
-                //   TCU 221094 → 0x94 (byte-40 = 108°C, possibly high-temp warning?)
-                data.cvtTempC = Float.NaN;
                 parseTargetMAP(sendM22("223050", CMD_TIMEOUT_SLOW));
                 parseBattTemp(sendM22("22309A", CMD_TIMEOUT_SLOW));
+
+                // ── TCU (7E1→7E9): CVT fluid temp ────────────────
+                // 22104F confirmed: byte-40 = °C.  At idle = 75°C; 10 min after shutoff = ~110°C
+                // (heat soak) — consistent with live CVT fluid temp behaviour.
+                setHeaderForce("7E1", "7E9");
+                parseCVTTemp(sendM22("22104F", CMD_TIMEOUT_SLOW));
+                // Restore ECM header so subsequent Tier 3d poll lands on 7E0
+                setHeaderForce("7E0", "7E8");
                 // Roughness only needed on ROUGHNESS page (3)
                 // PIDs confirmed by ScanGauge RM1-RM4 for FA20DIT WRX (firmware 4.22+)
                 // 2230xx range needs extra timeout — ECU response latency slightly higher
@@ -930,11 +931,11 @@ public class OBDManager {
         data.fuelPumpPct = a / 255f * 100f;
     }
 
-    // ── Mode 22 ECM — CVT fluid temp (on ECU 7E0, not TCU) ──────────────────────────
+    // ── Mode 22 TCU — CVT fluid temp ─────────────────────────────────────────────────
 
     private void parseCVTTemp(String r) {
-        // 221021 — CVT fluid temperature °C — lives on ECM (7E0/7E8), not TCU
-        // Terminal confirmed: 221017 returns 7F2231 on both ECM+TCU; 221021 works on ECM only
+        // 22104F on TCU (7E1/7E9) — CVT fluid temperature °C, formula: byte - 40
+        // Confirmed: 0x73 (75°C) at idle; ~110°C after 10-min heat soak post-shutoff
         if (isError(r)) return;
         int a = m22byte(r, 0); if (a < 0) return;
         float v = a - 40f;

@@ -30,7 +30,7 @@ Uses ELM327 AT commands + Subaru Mode 22 (UDS service 0x22) PIDs for manufacture
 |------|------|--------|------|
 | 1 (burst) | ~10–20 Hz | 7E0/7E8 | RPM, speed, MAP, throttle, MAF, timing, coolant, boost |
 | 2 | ~3–5 Hz | 7E0/7E8 | Wastegate, IAT, fine knock (knock corr removed — 223018 not supported) |
-| 3a | ~1 Hz | 7E0/7E8 | Target MAP, batt temp; roughness (page 3 only). CVT temp = NaN (correct PID unknown) |
+| 3a | ~1 Hz | 7E0+7E1 | Target MAP, batt temp; roughness (page 3 only). CVT temp from TCU 22104F |
 | 3d | ~1 Hz | 7E0/7E8 | DAM |
 
 **Header switching is expensive** — minimize `setHeader()` calls in the hot path.
@@ -53,10 +53,11 @@ Source: ScanGauge official XGauge page for Subaru Impreza WRX + Outback CVT.
 | 22101F | IAT | `byte - 40` | **Returns 7F2231 on every poll on this car — PID not supported.** `iatC` always NaN. |
 
 ## Confirmed Mode 22 PIDs (TCU 7E1)
-Source: ScanGauge Outback CVT XGauge page + PID scan (pid_scan_20260315_160213.csv).
+Source: ScanGauge Outback CVT XGauge page + PID scan + heat-soak test.
 
 | PID | Parameter | Formula | Notes |
 |-----|-----------|---------|-------|
+| **22104F** | **CVT fluid temp (°C)** | **`byte - 40`** | **Confirmed by heat-soak test.** 0x73=75°C at idle; ~110°C 10 min after shutoff. |
 | 22300E | Primary pulley speed (RPM) | raw word | ScanGauge confirmed. **Did NOT appear in PID scan** (returned NR_31) — contradicts ScanGauge. May need specific conditions. |
 | 2230D0 | Secondary pulley speed (RPM) | raw word | ScanGauge confirmed. Also absent from PID scan. |
 | 2230DA | CVT ratio actual | `word / 1000` (TODO verify) | ScanGauge confirmed PID; also absent from PID scan. |
@@ -65,27 +66,24 @@ Source: ScanGauge Outback CVT XGauge page + PID scan (pid_scan_20260315_160213.c
 | 221067 | Turbine RPM | `byte * 32` | ScanGauge confirmed. |
 
 ## PID Scan Findings (pid_scan_20260315_160213.csv — TCU responding PIDs, March 2026)
-These responded OK on TCU (7E1/7E9) and are NOT currently polled. Formulas are unknown.
 
 | PID | data_hex at scan | Notes |
 |-----|-----------------|-------|
-| 22104E | 5A | byte-40 = 50°C; could be CVT temp (cool) |
-| **22104F** | **73** | **byte-40 = 75°C / 167°F — best CVT temp candidate at operating temp** |
-| 221091 | C0 | byte-40 = 152°C; too hot for CVT fluid at normal temps — maybe oil? |
-| 221094 | 94 | byte-40 = 108°C; high-end CVT or coolant? |
+| **22104F** | **73** | **CVT fluid temp — CONFIRMED.** byte-40 = °C. 0x73 (75°C/167°F) at idle; ~110°C after 10-min heat soak post-shutoff. Now polled on TCU (7E1/7E9) in Tier 3a. |
+| 22104E | 5A | byte-40 = 50°C; identity unknown |
+| 221091 | C0 | byte-40 = 152°C; too hot for CVT fluid — unknown |
+| 221094 | 94 | byte-40 = 108°C; unknown |
 | 221138 | 0C86 | word = 3206; possible shaft speed (RPM?) |
 | 221139 | 060F | word = 1551; possible shaft speed |
-| 22113A | 05DC | word = 1500; close to 221139, possible secondary pulley |
-| 221152 | 0EC7 | word = 3783; possible shaft speed — note 22300E/2230D0 did NOT respond |
-| 2210C9 | 42 | byte = 66; byte-40 = 26°C (cool — maybe ATF temp when cold?) |
-
-**To identify CVT temp**: after a cold start, note values of 22104E/22104F/2210C9. After warm-up, the one that increased most is likely CVT fluid temp.
+| 22113A | 05DC | word = 1500; possible shaft speed |
+| 221152 | 0EC7 | word = 3783; possible shaft speed (note 22300E/2230D0 did NOT respond) |
+| 2210C9 | 42 | byte-40 = 26°C; unknown |
 
 ## Known Wrong PIDs (do not use)
 - `2210AF` for knock correction — it's engine oil temperature.
 - `221151/221150` for CVT shaft speeds — responded in PID scan but returned single-byte 0x52 (82), not a plausible shaft speed word at idle; may not be shaft speeds.
 - `221017` for CVT temp from TCU — returns 7F2231 (error) on this vehicle.
-- `221021` for CVT temp from ECM — returns a STATIC 4-byte response (`37EFE4CD`) that never changes during driving. Not a live sensor. Correct CVT temp PID is unknown; needs investigation.
+- `221021` for CVT temp from ECM — returns a STATIC 4-byte response (`37EFE4CD`) that never changes during driving. Not a live sensor. Use TCU `22104F` instead.
 - `223018` for knock correction — returns 7F2231 (requestOutOfRange) on every poll. **Poll has been REMOVED from OBDManager.** knockCorr stays NaN permanently.
 - `22101F` for IAT — returns 7F2231 on every poll. Not supported.
 
