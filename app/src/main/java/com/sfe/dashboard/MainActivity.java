@@ -214,11 +214,22 @@ public class MainActivity extends Activity {
             }
             if (needsRequest) requestPermissions( perms, PERM_REQUEST);
         } else {
-            String[] perms = { Manifest.permission.ACCESS_FINE_LOCATION };
-            if (checkSelfPermission( Manifest.permission.ACCESS_FINE_LOCATION)
-                    != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions( perms, PERM_REQUEST);
+            // API < 31: location always needed; WRITE_EXTERNAL_STORAGE needed below API 29
+            // (API 29+ uses MediaStore for Documents access — no permission required).
+            java.util.List<String> permList = new java.util.ArrayList<>();
+            permList.add(Manifest.permission.ACCESS_FINE_LOCATION);
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                permList.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
             }
+            String[] perms = permList.toArray(new String[0]);
+            boolean needsRequest = false;
+            for (String p : perms) {
+                if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) {
+                    needsRequest = true;
+                    break;
+                }
+            }
+            if (needsRequest) requestPermissions(perms, PERM_REQUEST);
         }
     }
 
