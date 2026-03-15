@@ -35,6 +35,9 @@ public class MainActivity extends Activity {
     private static final long DOUBLE_TAP_MS = 350;
     private static final long LONG_PRESS_MS = 600;
 
+    // ── Simultaneous-button detection (for PID scan trigger) ─────
+    private boolean leftDown = false;
+
     // ── Long-press runnables ──────────────────────────────────────
     private final Runnable leftLongRunnable  = () -> {
         dashView.nextTheme();
@@ -128,10 +131,12 @@ public class MainActivity extends Activity {
     private boolean onLeftTouch(MotionEvent ev) {
         switch (ev.getAction()) {
             case MotionEvent.ACTION_DOWN:
+                leftDown = true;
                 leftLongFired = false;
                 dashView.postDelayed(leftLongRunnable, LONG_PRESS_MS);
                 return true;
             case MotionEvent.ACTION_UP:
+                leftDown = false;
                 dashView.removeCallbacks(leftLongRunnable);
                 if (!leftLongFired) {
                     long now = System.currentTimeMillis();
@@ -153,6 +158,7 @@ public class MainActivity extends Activity {
                 }
                 return true;
             case MotionEvent.ACTION_CANCEL:
+                leftDown = false;
                 dashView.removeCallbacks(leftLongRunnable);
                 return true;
         }
@@ -164,6 +170,19 @@ public class MainActivity extends Activity {
     private boolean onRightTouch(MotionEvent ev) {
         switch (ev.getAction()) {
             case MotionEvent.ACTION_DOWN:
+                // Both buttons held simultaneously → toggle PID scan
+                if (leftDown) {
+                    dashView.removeCallbacks(leftLongRunnable);
+                    leftLongFired = true;  // suppress left-button action on release
+                    if (obdManager != null) {
+                        if (obdManager.isPIDScanRunning()) {
+                            obdManager.cancelPIDScan();
+                        } else if (DashData.get().connected) {
+                            obdManager.requestPIDScan();
+                        }
+                    }
+                    return true;
+                }
                 rightLongFired = false;
                 dashView.postDelayed(rightLongRunnable, LONG_PRESS_MS);
                 return true;

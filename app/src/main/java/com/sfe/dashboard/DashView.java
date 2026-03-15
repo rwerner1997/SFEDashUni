@@ -364,6 +364,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
 
         if (bootOn) { drawBoot(c, t); return; }
         if (driveOn) { drawDriveMode(c, t); return; }
+        if (DashData.get().scanRunning) { drawScanOverlay(c, t); return; }
 
         PageDef pg = PAGES[pageIdx];
         if ("cylinder".equals(pg.type)) {
@@ -1410,6 +1411,50 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
     }
 
     // ── ALERT ────────────────────────────────────────────────────
+
+    private void drawScanOverlay(Canvas c, Theme t) {
+        DashData d = DashData.get();
+
+        // Dim the whole canvas
+        fillRect(c, 0, 0, LW, LH, 0xFF000000, 0.90f);
+
+        // Top accent bar
+        fillRect(c, 0, 0, LW, 3, t.accent, 1f);
+
+        // Title
+        sf(12, true, true); textP.setColor(t.accent);
+        textP.setTextAlign(Paint.Align.CENTER);
+        c.drawText("PID SCAN", LW / 2f, 148, textP);
+
+        // Current phase / status
+        sf(7, false, false); textP.setColor(t.label);
+        c.drawText(d.scanPhase, LW / 2f, 185, textP);
+
+        // Progress bar track
+        float barW = LW * 0.76f, barH = 12f;
+        float barX = (LW - barW) / 2f, barY = 208f;
+        fillRect(c, (int) barX, (int) barY, (int) barW, (int) barH, t.panel, 1f);
+
+        // Progress bar fill (at least 4 px so it's visible from the start)
+        float filled = Math.max(4f, barW * d.scanProgress);
+        fillRect(c, (int) barX, (int) barY, (int) filled, (int) barH, t.accent, 1f);
+
+        // Percent text
+        sf(9, false, false); textP.setColor(t.white);
+        c.drawText(Math.round(d.scanProgress * 100) + "%", LW / 2f, 244, textP);
+
+        if (d.scanProgress < 1f) {
+            // Hint while running
+            sf(6, false, false); textP.setColor(t.dim);
+            c.drawText("HOLD BOTH BUTTONS TO CANCEL", LW / 2f, 410, textP);
+        } else {
+            // Done — show where the file was saved
+            sf(6, false, false); textP.setColor(t.green);
+            c.drawText("SAVED \u2192 DOCUMENTS / SFEDASH /", LW / 2f, 290, textP);
+            sf(5, false, false); textP.setColor(t.label);
+            c.drawText("pid_scan_*.csv", LW / 2f, 308, textP);
+        }
+    }
 
     private void drawAlert(Canvas c, Theme t) {
         long ms=System.currentTimeMillis();

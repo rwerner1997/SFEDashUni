@@ -79,6 +79,11 @@ public class DashData {
     // ── CVT fluid temp (on ECM 7E0, not TCU) ─────────────────────
     public volatile float cvtTempC      = Float.NaN; // 221021 — CVT fluid temperature (°C)
 
+    // ── PID Scan state (written by OBDManager poll thread) ───────
+    public volatile boolean scanRunning  = false;   // true while scan is active or showing result
+    public volatile String  scanPhase    = "";       // e.g. "ECM 10A3" or "DONE — 23 OK"
+    public volatile float   scanProgress = 0f;      // 0.0 → 1.0
+
     // ── Derived (computed in getter, not polled) ─────────────────
     public float speedMph()     { return speedKph * 0.621371f; }
     public float coolantF()     { return coolantC  * 9f/5f + 32f; }

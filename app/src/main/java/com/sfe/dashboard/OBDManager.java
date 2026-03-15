@@ -4,17 +4,30 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
 import android.content.BroadcastReceiver;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
+import android.os.ParcelFileDescriptor;
+import android.provider.MediaStore;
 import android.util.Log;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -54,6 +67,14 @@ public class OBDManager {
     private String currentCRA    = "";
 
     private final OBDLogger logger = new OBDLogger();
+
+    // ── PID scanner ───────────────────────────────────────────────
+    private final AtomicBoolean scanRequested = new AtomicBoolean(false);
+    private ParcelFileDescriptor scanPfd;   // held open for MediaStore scan log (API 29+)
+
+    public void requestPIDScan()      { scanRequested.set(true); }
+    public void cancelPIDScan()       { data.scanRunning = false; }
+    public boolean isPIDScanRunning() { return data.scanRunning; }
 
     // Poll-rate tracking
     private int  pollCount  = 0;
@@ -251,6 +272,12 @@ public class OBDManager {
         currentCRA    = "";
 
         while (running.get() && data.connected) {
+            // Check if a PID scan was requested — runs in this thread using the live connection
+            if (scanRequested.getAndSet(false)) {
+                runPIDScan();
+                continue;   // resume normal polling after scan finishes
+            }
+
             long t0 = System.currentTimeMillis();
 
             // ════════════════════════════════════════════════════
@@ -341,6 +368,178 @@ public class OBDManager {
             hzCount++;
             data.lastPollMs = System.currentTimeMillis() - t0;
         }
+    }
+
+    // ── Command send/receive ──────────────────────────────────────
+
+    // ── PID discovery scan ────────────────────────────────────────
+
+    /**
+     * Scan focused Mode 22 PID ranges on ECM (7E0) and TCU (7E1), log every response
+     * that is NOT NR_31 (requestOutOfRange) to Documents/SFEDash/pid_scan_TIMESTAMP.csv.
+     *
+     * Skipping NR_31 keeps the output small — only responsive/conditional/unexpected PIDs
+     * are logged.  A SUMMARY row at the end shows total counts.
+     *
+     * Trigger: both buttons held simultaneously (MainActivity sets scanRequested).
+     * Cancel:  cancelPIDScan() clears data.scanRunning; the inner loop checks it each PID.
+     *
+     * Scan ranges (chosen to cover all known Subaru FA20DIT PIDs ± neighbours):
+     *   ECM  0x1000–0x10FF, 0x1100–0x11FF, 0x3000–0x30FF
+     *   TCU  0x1000–0x10FF, 0x1100–0x11FF, 0x3000–0x30FF
+     */
+    private void runPIDScan() throws IOException {
+        final int SCAN_TIMEOUT = 300;   // ms — faster than CMD_TIMEOUT_SLOW but generous
+
+        // Each row: { ecuLabel, txHeader, rxHeader, startPID, endPID }
+        String[][] phases = {
+            {"ECM", "7E0", "7E8", "1000", "10FF"},
+            {"ECM", "7E0", "7E8", "1100", "11FF"},
+            {"ECM", "7E0", "7E8", "3000", "30FF"},
+            {"TCU", "7E1", "7E9", "1000", "10FF"},
+            {"TCU", "7E1", "7E9", "1100", "11FF"},
+            {"TCU", "7E1", "7E9", "3000", "30FF"},
+        };
+
+        int totalPids = 0;
+        for (String[] ph : phases)
+            totalPids += Integer.parseInt(ph[4], 16) - Integer.parseInt(ph[3], 16) + 1;
+
+        data.scanRunning  = true;
+        data.scanPhase    = "OPENING LOG";
+        data.scanProgress = 0f;
+
+        BufferedWriter w = openScanLog();
+        if (w == null) { data.scanRunning = false; return; }
+
+        try { w.write("ecu,pid,raw,status,data_hex\n"); } catch (IOException ignored) {}
+
+        int scanned = 0, hits = 0, nr22 = 0, other = 0;
+        String lastTx = "", lastRx = "";
+
+        outer:
+        for (String[] ph : phases) {
+            String ecuLabel = ph[0], tx = ph[1], rx = ph[2];
+            int start = Integer.parseInt(ph[3], 16);
+            int end   = Integer.parseInt(ph[4], 16);
+
+            if (!tx.equals(lastTx) || !rx.equals(lastRx)) {
+                setHeaderForce(tx, rx);
+                lastTx = tx; lastRx = rx;
+            }
+
+            for (int pid = start; pid <= end; pid++) {
+                if (!running.get() || !data.scanRunning) break outer;
+
+                String pidHex = String.format("%04X", pid);
+                data.scanPhase    = ecuLabel + " " + pidHex;
+                data.scanProgress = scanned / (float) totalPids;
+
+                String r;
+                try {
+                    r = sendCmdTimeout("22" + pidHex, SCAN_TIMEOUT);
+                } catch (IOException e) {
+                    closeScanLog(w, scanned, hits, nr22, other);
+                    data.scanRunning = false;
+                    throw e;    // propagate to trigger reconnect
+                }
+
+                String status = classifyScanResponse(r);
+                scanned++;
+
+                if ("NR_31".equals(status)) continue;   // most common — skip silently
+
+                String dataHex = "OK".equals(status) ? extractScanData(r, pidHex) : "";
+                try {
+                    w.write(ecuLabel + ",22" + pidHex + ","
+                            + (r == null ? "" : r.replace(",", ";")) + ","
+                            + status + "," + dataHex + "\n");
+                } catch (IOException ignored) {}
+
+                if      ("OK"   .equals(status)) hits++;
+                else if ("NR_22".equals(status)) nr22++;
+                else                             other++;
+            }
+        }
+
+        closeScanLog(w, scanned, hits, nr22, other);
+
+        // Keep overlay visible for 5 s so the user sees the result
+        data.scanPhase    = "DONE  " + hits + " OK  " + nr22 + " CONDITIONAL";
+        data.scanProgress = 1f;
+        sleep(5000);
+        data.scanRunning = false;
+    }
+
+    /** Classify an ELM327 / UDS response for scan logging. */
+    private String classifyScanResponse(String r) {
+        if (r == null || r.isEmpty()) return "NO_DATA";
+        String u = strip(r).toUpperCase();
+        if (u.startsWith("62"))        return "OK";
+        if (u.contains("7F2231"))      return "NR_31";   // requestOutOfRange — not supported
+        if (u.contains("7F2212"))      return "NR_12";   // subFunctionNotSupported
+        if (u.contains("7F2222"))      return "NR_22";   // conditionsNotCorrect — PID exists!
+        if (u.contains("7F2224"))      return "NR_24";   // requestSequenceError
+        if (u.contains("7F2235"))      return "NR_35";   // requestSequenceError
+        if (u.contains("7F22"))        return "NR_XX";   // other UDS negative response
+        if (u.contains("NODATA") || u.contains("NO DATA")) return "NO_DATA";
+        return "ERROR";
+    }
+
+    /** Strip the 62+PID prefix from a positive response to get just the data bytes. */
+    private String extractScanData(String r, String pidHex) {
+        String u = strip(r).toUpperCase();
+        String prefix = "62" + pidHex.toUpperCase();
+        int idx = u.indexOf(prefix);
+        if (idx < 0) return "";
+        int start = idx + prefix.length();
+        return (start < u.length()) ? u.substring(start) : "";
+    }
+
+    /** Open a new pid_scan CSV file in Documents/SFEDash (same strategy as OBDLogger). */
+    private BufferedWriter openScanLog() {
+        String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ContentValues cv = new ContentValues();
+                cv.put(MediaStore.MediaColumns.DISPLAY_NAME, "pid_scan_" + ts + ".csv");
+                cv.put(MediaStore.MediaColumns.MIME_TYPE, "text/csv");
+                cv.put(MediaStore.MediaColumns.RELATIVE_PATH, "Documents/SFEDash");
+                Uri uri = ctx.getContentResolver()
+                             .insert(MediaStore.Files.getContentUri("external"), cv);
+                if (uri == null) { Log.e(TAG, "Scan log: MediaStore insert null"); return null; }
+                scanPfd = ctx.getContentResolver().openFileDescriptor(uri, "w");
+                if (scanPfd == null) { Log.e(TAG, "Scan log: pfd null"); return null; }
+                return new BufferedWriter(new OutputStreamWriter(
+                        new FileOutputStream(scanPfd.getFileDescriptor())), 65536);
+            } else {
+                //noinspection deprecation
+                File dir = new File(Environment.getExternalStoragePublicDirectory(
+                        Environment.DIRECTORY_DOCUMENTS), "SFEDash");
+                //noinspection ResultOfMethodCallIgnored
+                dir.mkdirs();
+                return new BufferedWriter(
+                        new FileWriter(new File(dir, "pid_scan_" + ts + ".csv")), 65536);
+            }
+        } catch (IOException e) {
+            Log.e(TAG, "Cannot open scan log: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private void closeScanLog(BufferedWriter w, int scanned, int hits, int nr22, int other) {
+        try {
+            w.write("SUMMARY,scanned=" + scanned + ",hits_OK=" + hits
+                    + ",conditional_NR22=" + nr22 + ",other=" + other + ",,\n");
+            w.flush();
+            w.close();
+        } catch (IOException ignored) {}
+        if (scanPfd != null) {
+            try { scanPfd.close(); } catch (IOException ignored) {}
+            scanPfd = null;
+        }
+        Log.i(TAG, "PID scan done: " + hits + " OK, " + nr22
+                + " conditional, " + other + " other / " + scanned + " scanned");
     }
 
     // ── Command send/receive ──────────────────────────────────────
