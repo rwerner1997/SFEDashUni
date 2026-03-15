@@ -308,7 +308,8 @@ public class OBDManager {
                 setHeader("7E0", "7E8");
                 parseThrottleAngle(sendM22("221022", CMD_TIMEOUT_SLOW));  // throttle body °
                 parseBoostDirect(sendM22("2210A6", CMD_TIMEOUT_SLOW));    // direct boost psi
-                parseKnockCorr(sendM22("223018", CMD_TIMEOUT_SLOW));      // was 2210AF (spec §7) — reverted; 223018 confirmed working
+                // 223018 (knock feedback) returns 7F2231 on every poll — not supported on this ECU.
+                // Removing the poll keeps knockCorr=NaN permanently, preventing spurious knock alerts.
                 parseWastegate(sendM22("2210A8", CMD_TIMEOUT_SLOW));
                 parseIAT(sendM22("22101F", CMD_TIMEOUT_SLOW));
                 parseFineKnock(sendM22("2210B0", CMD_TIMEOUT_SLOW));
@@ -333,7 +334,13 @@ public class OBDManager {
                 // when ATSH changes (e.g. 7DF→7E0), leaving the filter stale and causing
                 // the ECU response to be missed or mixed with bus noise from other ECUs.
                 setHeaderForce("7E0", "7E8");
-                parseCVTTemp(sendM22("221021", CMD_TIMEOUT_SLOW));        // ECM, not TCU — confirmed via terminal
+                // 221021 returns a STATIC 4-byte response (62102137EFE4CD) that never changes —
+                // it does not reflect live CVT fluid temperature on this ECU.  Setting NaN
+                // shows "---" in the dashboard rather than the misleading stuck 59°F value.
+                // TODO: identify the correct CVT temp PID.  TCU candidates from PID scan:
+                //   TCU 22104F → 0x73 at scan time (byte-40 = 75°C / 167°F, plausible operating temp)
+                //   TCU 221094 → 0x94 (byte-40 = 108°C, possibly high-temp warning?)
+                data.cvtTempC = Float.NaN;
                 parseTargetMAP(sendM22("223050", CMD_TIMEOUT_SLOW));
                 parseBattTemp(sendM22("22309A", CMD_TIMEOUT_SLOW));
                 // Roughness only needed on ROUGHNESS page (3)
