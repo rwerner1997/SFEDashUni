@@ -336,10 +336,11 @@ public class OBDManager {
                 setHeaderForce("7E0", "7E8");
                 parseTargetMAP(sendM22("223050", CMD_TIMEOUT_SLOW));
                 parseBattTemp(sendM22("22309A", CMD_TIMEOUT_SLOW));
-                // CVT temp: TCU 2210C9, formula byte-40 °C.
-                // 22104E (static 50°C) and 221094 (static 108°C) confirmed dead — not live sensors.
+                // CVT temp: TCU 2210D2, formula byte-50 °C.
+                // Confirmed across 3 reference points (pid_scan_20260315, _0316_083419, _084742).
+                // 2210C9 swings wildly with braking/acceleration — not a temp sensor.
                 setHeaderForce("7E1", "7E9");
-                parseCVTTemp(sendM22("2210C9", CMD_TIMEOUT_SLOW));
+                parseCVTTemp(sendM22("2210D2", CMD_TIMEOUT_SLOW));
                 setHeaderForce("7E0", "7E8");
                 // Roughness only needed on ROUGHNESS page (3)
                 // PIDs confirmed by ScanGauge RM1-RM4 for FA20DIT WRX (firmware 4.22+)
@@ -677,9 +678,10 @@ public class OBDManager {
 
     private void parsePedal(String r) {
         // PID 0145 = Relative Accelerator Pedal Position
+        // Car returns ~4% at rest (physical idle offset); subtract and clamp to 0.
         r = strip(r); if (isError(r) || r.length() < 6) return;
         int a = byteAt(r, 2); if (a < 0) return;
-        data.pedalPct = a / 255f * 100f;
+        data.pedalPct = Math.max(0f, a / 255f * 100f - 4f);
     }
 
     // ── Mode 22 ECU supplemental parsers ─────────────────────────
@@ -730,11 +732,12 @@ public class OBDManager {
     }
 
     private void parseBoostDirect(String r) {
-        // 2210A6 — Boost pressure psi (spec §6). TODO: verify formula on car.
-        // Assumes 0.1 psi/count absolute; subtract atmospheric for gauge psi.
+        // 2210A6 — Boost pressure psi (gauge). 0.1 psi/count, sensor reads 0 at atmospheric.
+        // Log confirms byte=0x00 consistently at idle/no-boost; byte=0x9E(158)→15.8 psi at WOT.
+        // No atmospheric offset needed — sensor reports gauge pressure directly.
         if (isError(r)) return;
         int a = m22byte(r, 0); if (a < 0) return;
-        data.boostPsiDirect = a / 10f - 14.7f;
+        data.boostPsiDirect = a / 10f;
     }
 
     private void parseLoad(String r) {
@@ -752,7 +755,9 @@ public class OBDManager {
     private void parseTiming(String r) {
         r = strip(r); if (isError(r) || r.length() < 6) return;
         int a = byteAt(r, 2); if (a < 0) return;
-        data.timingDeg = a / 2f - 64f;
+        float v = a / 2f - 64f;
+        if (v < -20f || v > 55f) return;  // reject physically implausible values (ELM glitch)
+        data.timingDeg = v;
     }
 
     private void parseMAF(String r) {
@@ -931,11 +936,11 @@ public class OBDManager {
     // ── Mode 22 TCU — CVT fluid temp ─────────────────────────────────────────────────
 
     private void parseCVTTemp(String r) {
-        // 2210C9 on TCU (7E1/7E9) — CVT fluid temperature °C, formula: byte - 40
-        // byte=0x00 is a power-off/init sentinel (-40°C); guard excludes it.
+        // 2210D2 on TCU (7E1/7E9) — CVT fluid temperature °C, formula: byte - 50
+        // Verified: 0x63→49°C(120°F), 0x7D→75°C(167°F), 0x81→79°C(174°F) across 3 logs.
         if (isError(r)) return;
         int a = m22byte(r, 0); if (a < 0) return;
-        float v = a - 40f;
+        float v = a - 50f;
         if (v > -30f && v < 200f) data.cvtTempC = v;
     }
 
@@ -1043,12 +1048,13 @@ public class OBDManager {
     }
 
     private void parseDAM(String r) {
-        // 2210B1 — dynamic advance multiplier ratio (spec §7; was EGR steps)
-        // 1.0 = nominal, <1.0 = ECU has pulled timing due to knock history
-        // TODO: verify formula on car
+        // 2210B1 — dynamic advance multiplier ratio.
+        // FA20DIT encodes DAM as 0–16 counts; 16 = 1.0 (full advance), 0 = fully pulled.
+        // Observed values: 0x00, 0x01, 0x03, 0x0C (0, 1, 3, 12 → 0.0, 0.06, 0.19, 0.75).
+        // Prior formula was /255 which kept values microscopic — corrected to /16.
         if (isError(r)) return;
         int a = m22byte(r, 0); if (a < 0) return;
-        data.damRatio = a / 255f;
+        data.damRatio = Math.min(1f, a / 16f);
     }
 
     // ── Mode 01 — additional parsers ─────────────────────────────

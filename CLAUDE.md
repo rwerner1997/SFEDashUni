@@ -43,7 +43,7 @@ Source: ScanGauge official XGauge page for Subaru Impreza WRX + Outback CVT.
 | 223018 | Feedback Knock Correction (°) | `byte / 4 - 32` | **Returns 7F2231 (requestOutOfRange) on every poll on this car — PID not supported.** `knockCorr` always NaN; knock alert will never fire from this source. |
 | 2210AF | **Engine Oil Temp** (°F) | `byte * 9/5 - 40` | ScanGauge EOT — **NOT knock corr** |
 | 2210B0 | Fine Knock Learning (°) | `byte / 4 - 32` | Works on this ECU; unverified formula. Log shows values ~0x28(-22°) at idle/light load and 0x9B-0x9D(+6.75–7.25°) occasionally. Possibly correct. |
-| 2210B1 | DAM — Dynamic Advance Multiplier | `byte / 255` (TODO verify) | Log shows 0x00(0) and 0x03(3) → DAM near 0% indicating ECU has pulled timing historically. |
+| 2210B1 | DAM — Dynamic Advance Multiplier | `byte / 16` | FA20DIT encodes DAM as 0–16 counts; 16 = 1.0 (full advance). Observed: 0x00, 0x01, 0x03, 0x0C across sessions. Prior formula was /255 which kept all values near 0 — corrected. |
 | 223062 | Roughness Cyl 1 | raw byte | ScanGauge RM1 confirmed |
 | 223048 | Roughness Cyl 2 | raw byte | ScanGauge RM2 confirmed |
 | 223068 | Roughness Cyl 3 | raw byte | ScanGauge RM3 confirmed |
@@ -64,19 +64,22 @@ Source: ScanGauge Outback CVT XGauge page + PID scan.
 | 221065 | Transfer duty (%) | `byte / 2` | ScanGauge confirmed. |
 | 221067 | Turbine RPM | `byte * 32` | ScanGauge confirmed. |
 
-## PID Scan Findings (pid_scan_20260315_160213.csv — TCU responding PIDs, March 2026)
+## PID Scan Findings (TCU responding PIDs — March 2026)
 
-| PID | data_hex at scan | Notes |
-|-----|-----------------|-------|
-| 22104F | 73 | **STATIC** — 0x73 for entire 12-min driving session incl. WOT. Not a live sensor. |
-| 22104E | 5A | byte-40 = 50°C; **STATIC** — same value every sample across full 406-s drive log. Not a live sensor. |
-| 221091 | C0 | byte-40 = 152°C; too hot for CVT fluid — unknown |
-| 221094 | 94 | byte-40 = 108°C; **STATIC** — same value every sample across full 406-s drive log. Not a live sensor. |
-| 221138 | 0C86 | word = 3206; possible shaft speed (RPM?) |
-| 221139 | 060F | word = 1551; possible shaft speed |
-| 22113A | 05DC | word = 1500; possible shaft speed |
-| 221152 | 0EC7 | word = 3783; possible shaft speed (note 22300E/2230D0 did NOT respond) |
-| 2210C9 | 42 | byte-40 = 26°C; **CONFIRMED CVT FLUID TEMP** — live data across 406-s drive log; ambient cold-soak → gradual warmup; 0x00 is power-off sentinel (guard: reject v ≤ -30°C). |
+Sources: pid_scan_20260315_160213.csv (mid-drive), pid_scan_20260316_083419.csv (CarScanner ref: 110–120°F), pid_scan_20260316_084742.csv (CarScanner ref: 167–170°F).
+
+| PID | scan_20260315 | scan_083419 | scan_084742 | Notes |
+|-----|--------------|-------------|-------------|-------|
+| 22104F | 73 | 73 | 73 | **STATIC** — 0x73 every session. Not a live sensor. |
+| 22104E | — | 5A | 5A | **STATIC** — 0x5A both new scans. Not a live sensor. |
+| 221091 | C0 | C0 | C0 | **STATIC** — unknown, too hot for CVT fluid. |
+| 221094 | — | 94 | 94 | **STATIC** — 0x94 both new scans. Not a live sensor. |
+| 2210C9 | 42 | 3C | 49 | **NOT CVT TEMP** — swings wildly with braking/accel. Unknown sensor (pressure? clutch duty?). |
+| 2210D2 | 81 | 63 | 7D | **CONFIRMED CVT FLUID TEMP** — formula `byte - 50` °C: 0x63→49°C(120°F) ✓, 0x7D→75°C(167°F) ✓, 0x81→79°C(174°F) ✓ across all three reference points. |
+| 221138 | 0C86 | 10CE | 0B0B | word; changes with drive state — possible shaft speed (RPM?) |
+| 221139 | 060F | 06C5 | 0603 | word; possible shaft speed |
+| 22113A | 05DC | 076A | 06C6 | word; possible shaft speed |
+| 221152 | 0EC7 | 0EC9 | 0EC9 | word = ~3785; nearly constant — note 22300E/2230D0 did NOT respond |
 
 ## Known Wrong PIDs (do not use)
 - `2210AF` for knock correction — it's engine oil temperature.
@@ -86,6 +89,7 @@ Source: ScanGauge Outback CVT XGauge page + PID scan.
 - `22104F` for CVT temp from TCU — also STATIC. Returns `0x73` for entire sessions including WOT pulls. Not a live sensor despite appearing plausible at scan time.
 - `22104E` for CVT temp from TCU — STATIC. Returns `0x5A` every sample across full drive log. Not a live sensor.
 - `221094` for CVT temp from TCU — STATIC. Returns `0x94` every sample across full drive log. Not a live sensor.
+- `2210C9` for CVT temp from TCU — **NOT a temp sensor**. Live signal but swings wildly with braking/acceleration — likely pressure, clutch duty, or similar. Do not use for CVT temp.
 - `223018` for knock correction — returns 7F2231 (requestOutOfRange) on every poll. **Poll has been REMOVED from OBDManager.** knockCorr stays NaN permanently.
 - `22101F` for IAT — returns 7F2231 on every poll. Not supported.
 

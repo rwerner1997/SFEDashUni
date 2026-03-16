@@ -414,7 +414,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             } else if (d.battV > 5f && d.battV < 11.5f) {
                 triggerAlert("LOW VOLTAGE", "CHARGING SYSTEM FAILURE",
                     String.format("%.1fV", d.battV), "orange");
-            } else if (d.catTempF() > 1600f && d.catTempF() < 2000f) {
+            } else if (d.catTempF() > 1700f && d.catTempF() < 2000f) {
                 triggerAlert("CAT OVERHEAT", "CATALYST TEMP CRITICAL",
                     String.format("%.0f°F", d.catTempF()), "orange");
             }
@@ -941,7 +941,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
 
     /** Two narrow vertical strips on either side of the arc gauge showing always-on vitals.
      *  Left:  RPM (top) + Boost (bottom)
-     *  Right: Coolant °F (top) + Oil °F (bottom)
+     *  Right: Speed MPH (top) + Oil °F (bottom)
      *  Each strip is 68 px wide — leaves a ~4 px gap before the arc track outer edge (~72 px). */
     private void drawSideStrips(Canvas c, Theme t) {
         DashData d = DashData.get();
@@ -960,8 +960,8 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         // Left strip: RPM (top slot) + Boost (bottom slot)
         drawStripItem(c, t, 0,           topY, stripW, midY - topY, PAGES[0].pids[0], d.rpm,       "RPM",  "RPM");
         drawStripItem(c, t, 0,           midY, stripW, botY - midY, PAGES[2].pids[0], d.boostPsi(),"BOOST","PSI");
-        // Right strip: Coolant (top slot) + Oil (bottom slot)
-        drawStripItem(c, t, LW - stripW, topY, stripW, midY - topY, PAGES[1].pids[0], d.coolantF(),"COOL", "°F");
+        // Right strip: Speed (top slot) + Oil (bottom slot)
+        drawStripItem(c, t, LW - stripW, topY, stripW, midY - topY, PAGES[4].pids[1], d.speedMph(),"SPD",  "MPH");
         drawStripItem(c, t, LW - stripW, midY, stripW, botY - midY, PAGES[1].pids[1], d.oilTempF(),"OIL",  "°F");
     }
 
@@ -1266,7 +1266,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             fillRect(c,sx3+(i>0?1:0),398,2,58, scols2[i], 1f);
             sf(7,true,false); textP.setColor(t.white); textP.setAlpha(255); textP.setTextAlign(Paint.Align.LEFT);
             c.drawText(slbls2[i],sx3+6,408,textP);
-            sf(9,true,true); textP.setColor(scols2[i]); c.drawText(svals2[i],sx3+6,450,textP);
+            sf(18,true,true); textP.setColor(scols2[i]); c.drawText(svals2[i],sx3+6,458,textP);
             if(i<2) fillRect(c,sx3+(LW/3)-1,398,1,58, t.border, 0.3f);
         }
     }
