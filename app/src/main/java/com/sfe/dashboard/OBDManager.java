@@ -336,10 +336,11 @@ public class OBDManager {
                 setHeaderForce("7E0", "7E8");
                 parseTargetMAP(sendM22("223050", CMD_TIMEOUT_SLOW));
                 parseBattTemp(sendM22("22309A", CMD_TIMEOUT_SLOW));
-                // CVT temp: TCU 2210C9, formula byte-40 °C.
-                // 22104E (static 50°C) and 221094 (static 108°C) confirmed dead — not live sensors.
+                // CVT temp: TCU 2210D2, formula byte-50 °C.
+                // Confirmed across 3 reference points (pid_scan_20260315, _0316_083419, _084742).
+                // 2210C9 swings wildly with braking/acceleration — not a temp sensor.
                 setHeaderForce("7E1", "7E9");
-                parseCVTTemp(sendM22("2210C9", CMD_TIMEOUT_SLOW));
+                parseCVTTemp(sendM22("2210D2", CMD_TIMEOUT_SLOW));
                 setHeaderForce("7E0", "7E8");
                 // Roughness only needed on ROUGHNESS page (3)
                 // PIDs confirmed by ScanGauge RM1-RM4 for FA20DIT WRX (firmware 4.22+)
@@ -931,11 +932,11 @@ public class OBDManager {
     // ── Mode 22 TCU — CVT fluid temp ─────────────────────────────────────────────────
 
     private void parseCVTTemp(String r) {
-        // 2210C9 on TCU (7E1/7E9) — CVT fluid temperature °C, formula: byte - 40
-        // byte=0x00 is a power-off/init sentinel (-40°C); guard excludes it.
+        // 2210D2 on TCU (7E1/7E9) — CVT fluid temperature °C, formula: byte - 50
+        // Verified: 0x63→49°C(120°F), 0x7D→75°C(167°F), 0x81→79°C(174°F) across 3 logs.
         if (isError(r)) return;
         int a = m22byte(r, 0); if (a < 0) return;
-        float v = a - 40f;
+        float v = a - 50f;
         if (v > -30f && v < 200f) data.cvtTempC = v;
     }
 
