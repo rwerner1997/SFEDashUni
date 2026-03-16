@@ -678,9 +678,10 @@ public class OBDManager {
 
     private void parsePedal(String r) {
         // PID 0145 = Relative Accelerator Pedal Position
+        // Car returns ~4% at rest (physical idle offset); subtract and clamp to 0.
         r = strip(r); if (isError(r) || r.length() < 6) return;
         int a = byteAt(r, 2); if (a < 0) return;
-        data.pedalPct = a / 255f * 100f;
+        data.pedalPct = Math.max(0f, a / 255f * 100f - 4f);
     }
 
     // ── Mode 22 ECU supplemental parsers ─────────────────────────
@@ -731,11 +732,12 @@ public class OBDManager {
     }
 
     private void parseBoostDirect(String r) {
-        // 2210A6 — Boost pressure psi (spec §6). TODO: verify formula on car.
-        // Assumes 0.1 psi/count absolute; subtract atmospheric for gauge psi.
+        // 2210A6 — Boost pressure psi (gauge). 0.1 psi/count, sensor reads 0 at atmospheric.
+        // Log confirms byte=0x00 consistently at idle/no-boost; byte=0x9E(158)→15.8 psi at WOT.
+        // No atmospheric offset needed — sensor reports gauge pressure directly.
         if (isError(r)) return;
         int a = m22byte(r, 0); if (a < 0) return;
-        data.boostPsiDirect = a / 10f - 14.7f;
+        data.boostPsiDirect = a / 10f;
     }
 
     private void parseLoad(String r) {

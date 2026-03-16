@@ -414,7 +414,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             } else if (d.battV > 5f && d.battV < 11.5f) {
                 triggerAlert("LOW VOLTAGE", "CHARGING SYSTEM FAILURE",
                     String.format("%.1fV", d.battV), "orange");
-            } else if (d.catTempF() > 1600f && d.catTempF() < 2000f) {
+            } else if (d.catTempF() > 1700f && d.catTempF() < 2000f) {
                 triggerAlert("CAT OVERHEAT", "CATALYST TEMP CRITICAL",
                     String.format("%.0f°F", d.catTempF()), "orange");
             }
