@@ -336,14 +336,10 @@ public class OBDManager {
                 setHeaderForce("7E0", "7E8");
                 parseTargetMAP(sendM22("223050", CMD_TIMEOUT_SLOW));
                 parseBattTemp(sendM22("22309A", CMD_TIMEOUT_SLOW));
-
-                // ── TCU (7E1→7E9): CVT fluid temp ────────────────
-                // 22104F confirmed: byte-40 = °C.  At idle = 75°C; 10 min after shutoff = ~110°C
-                // (heat soak) — consistent with live CVT fluid temp behaviour.
-                setHeaderForce("7E1", "7E9");
-                parseCVTTemp(sendM22("22104F", CMD_TIMEOUT_SLOW));
-                // Restore ECM header so subsequent Tier 3d poll lands on 7E0
-                setHeaderForce("7E0", "7E8");
+                // CVT temp: 22104F on TCU confirmed STATIC (0x73 for 12+ min incl. WOT).
+                // 221021 on ECM was also static.  Correct PID still unknown.
+                // Remaining TCU candidates from PID scan: 22104E (50°C), 221094 (108°C), 2210C9 (26°C).
+                data.cvtTempC = Float.NaN;
                 // Roughness only needed on ROUGHNESS page (3)
                 // PIDs confirmed by ScanGauge RM1-RM4 for FA20DIT WRX (firmware 4.22+)
                 // 2230xx range needs extra timeout — ECU response latency slightly higher
