@@ -95,12 +95,11 @@ public class DashData {
     public float targetMapPsi() { return targetMapKpa / 6.89476f; }
     public float baroPsi()      { return baroKpa   / 6.89476f; }
 
-    /** Boost psi. Prefers 2210A6 direct value when available; falls back to
-     *  MAP-baro calculation with calibration offset. Returns NaN if no data. */
+    /** Boost psi from MAP − baro. 2210A6 direct sensor is unverified and dropped.
+     *  Returns NaN until both MAP and baro are populated. */
     public float boostPsi() {
-        if (!Float.isNaN(boostPsiDirect)) return boostPsiDirect;
         if (Float.isNaN(mapKpa) || Float.isNaN(baroKpa)) return Float.NaN;
-        return (mapKpa - baroKpa) / 6.89476f - 0.85f;
+        return (mapKpa - baroKpa) / 6.89476f;
     }
 
     public float iatF()  { return iatC * 9f/5f + 32f; }
@@ -125,7 +124,7 @@ public class DashData {
     public volatile float peakTimingDeg  = Float.NaN;
     public volatile float peakLoadPct    = Float.NaN;
     public volatile float peakSpeedMph   = Float.NaN;
-    public volatile float worstKnockCorr = Float.NaN;
+    public volatile float peakCvtTempF   = Float.NaN;
     public volatile float peakMafGs      = Float.NaN;
     public volatile float peakEstHp      = Float.NaN;
     public volatile float peakCatTempF   = Float.NaN;
@@ -138,7 +137,8 @@ public class DashData {
         if (!Float.isNaN(loadPct) && (Float.isNaN(peakLoadPct) || loadPct > peakLoadPct))         peakLoadPct    = loadPct;
         float s = speedMph();
         if (!Float.isNaN(s) && (Float.isNaN(peakSpeedMph) || s > peakSpeedMph))                   peakSpeedMph   = s;
-        if (!Float.isNaN(knockCorr) && (Float.isNaN(worstKnockCorr) || knockCorr < worstKnockCorr)) worstKnockCorr = knockCorr;
+        float cvt = cvtTempF();
+        if (!Float.isNaN(cvt) && (Float.isNaN(peakCvtTempF) || cvt > peakCvtTempF))              peakCvtTempF   = cvt;
         if (!Float.isNaN(mafGs) && (Float.isNaN(peakMafGs) || mafGs > peakMafGs))                 peakMafGs      = mafGs;
         float hp = estHp();
         if (!Float.isNaN(hp) && (Float.isNaN(peakEstHp) || hp > peakEstHp))                       peakEstHp      = hp;
@@ -148,7 +148,7 @@ public class DashData {
 
     public void resetPeaks() {
         peakBoostPsi = Float.NaN; peakRpm = Float.NaN; peakTimingDeg = Float.NaN;
-        peakLoadPct  = Float.NaN; peakSpeedMph = Float.NaN; worstKnockCorr = Float.NaN;
+        peakLoadPct  = Float.NaN; peakSpeedMph = Float.NaN; peakCvtTempF   = Float.NaN;
         peakMafGs    = Float.NaN; peakEstHp = Float.NaN; peakCatTempF = Float.NaN;
         knockEventCount = 0;
     }

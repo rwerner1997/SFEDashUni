@@ -169,9 +169,9 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             // ── Page 0: ENGINE ────────────────────────────────────────
             new PageDef("ENGINE","PERFORMANCE","arc",0,
                 pid("ENGINE RPM","RPM",0,7000,0, fl(0,800,5000,6500),fl(800,5000,6500,9e9f),cs("blue","green","yellow","red")),
-                pid("ENGINE LOAD","%",0,100,1,   fl(0,40,70,90),fl(40,70,90,9e9f),cs("green","yellow","orange","red")),
-                pid("PEDAL POS","%",0,100,1,     fl(0,80,95),fl(80,95,9e9f),cs("green","yellow","red")),
-                pid("IGN TIMING","°",-20,45,1,   fl(-20,0,10,25,35),fl(0,10,25,35,9e9f),cs("red","orange","green","yellow","cyan"))),
+                pid("MAF","G/S",0,200,1,         fl(0,80,150,180),fl(80,150,180,9e9f),cs("green","yellow","orange","red")),
+                pid("STFT","%",-10,10,1,         fl(-10,-5,-1,1),fl(-5,-1,1,9e9f),cs("red","orange","green","yellow")),
+                pid("LTFT","%",-10,10,1,         fl(-10,-5,-1,1),fl(-5,-1,1,9e9f),cs("red","orange","green","yellow"))),
             // ── Page 1: TEMPERATURES ─────────────────────────────────
             new PageDef("TEMPERATURES","THERMAL MAP","arc",0,
                 pid("COOLANT TEMP","°F",32,266,0, fl(32,140,210,239),fl(140,210,239,9e9f),cs("blue","green","yellow","red")),
@@ -179,10 +179,18 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
                 pid("CVT TEMP","°F",32,266,0,     fl(32,122,200,230),fl(122,200,230,9e9f),cs("blue","green","yellow","red")),
                 pid("CAT TEMP","°F",300,1800,0,   fl(300,800,1300,1600),fl(800,1300,1600,9e9f),cs("blue","green","yellow","red"))),
             // ── Page 2: BOOST ────────────────────────────────────────
-            new PageDef("BOOST","BOOST · WASTEGATE","arc",0,
+            new PageDef("BOOST","BOOST · WASTEGATE · FUEL","arc",0,
                 pid("BOOST","PSI",-12,22,1,       fl(-12,-1,1,16,20),fl(-1,1,16,20,9e9f),cs("blue","cyan","green","yellow","red")),
-                pid("WASTEGATE","%",0,100,1,       fl(0,20,60,85),fl(20,60,85,9e9f),cs("blue","cyan","green","red"))),
-            // ── Page 3: ROUGHNESS ────────────────────────────────────
+                pid("WASTEGATE","%",0,100,1,       fl(0,20,60,85),fl(20,60,85,9e9f),cs("blue","cyan","green","red")),
+                pid("INJ DUTY","%",0,100,1,        fl(0,50,75,90),fl(50,75,90,9e9f),cs("green","yellow","orange","red")),
+                pid("STFT","%",-10,10,1,           fl(-10,-5,-1,1),fl(-5,-1,1,9e9f),cs("red","orange","green","yellow"))),
+            // ── Page 3: FUEL ─────────────────────────────────────────
+            new PageDef("FUEL","FUEL TRIMS · INJECTION","arc",0,
+                pid("STFT","%",-10,10,1,        fl(-10,-5,-1,1),fl(-5,-1,1,9e9f),cs("red","orange","green","yellow")),
+                pid("LTFT","%",-10,10,1,        fl(-10,-5,-1,1),fl(-5,-1,1,9e9f),cs("red","orange","green","yellow")),
+                pid("INJ DUTY","%",0,100,1,     fl(0,50,75,90),fl(50,75,90,9e9f),cs("green","yellow","orange","red")),
+                pid("INJ PULSE","ms",0,10,2,    fl(0,4,7,9),fl(4,7,9,9e9f),cs("green","cyan","yellow","red"))),
+            // ── Page 4: ROUGHNESS ────────────────────────────────────
             new PageDef("ROUGHNESS","CYL MONITORS","cylinder",-1,
                 pid("CYL 1","",0,100,1, fl(0,10,30),fl(10,30,9e9f),cs("green","yellow","red")),
                 pid("CYL 2","",0,100,1, fl(0,10,30),fl(10,30,9e9f),cs("green","yellow","red")),
@@ -195,9 +203,9 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
                 pid("ENGINE RPM","RPM",0,7000,0,     fl(0,800,5000,6500),fl(800,5000,6500,9e9f),cs("blue","green","yellow","red")),
                 pid("ENGINE LOAD","%",0,100,1,       fl(0,40,70,90),fl(40,70,90,9e9f),cs("green","yellow","orange","red"))),
             // ── Page 6: TIMING ───────────────────────────────────────
-            new PageDef("TIMING","KNOCK · ADVANCE · DAM","arc",0,
+            new PageDef("TIMING","ADVANCE · FUEL TRIM · DAM","arc",0,
                 pid("IGN TIMING","°",-15,45,1,  fl(-15,0,8,20,35),fl(0,8,20,35,9e9f),cs("red","orange","yellow","green","cyan")),
-                pid("KNOCK CORR","°",-6,0,2,    fl(-6,-3,-1.5f,-0.5f),fl(-3,-1.5f,-0.5f,9e9f),cs("red","orange","yellow","green")),
+                pid("STFT","%",-10,10,1,        fl(-10,-5,-1,1),fl(-5,-1,1,9e9f),cs("red","orange","green","yellow")),
                 pid("FINE KNOCK","°",-6,0,2,    fl(-6,-3,-1.5f,-0.5f),fl(-3,-1.5f,-0.5f,9e9f),cs("red","orange","yellow","green")),
                 pid("DAM RATIO","",0f,1f,2,      fl(0f,0.7f,0.9f),fl(0.7f,0.9f,9e9f),cs("red","orange","green"))),
             // ── Page 7: SESSION (last) ──────────────────────────────
@@ -207,7 +215,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
                 pid("TIMING","°",-15,45,1,   fl(0),fl(9e9f),cs("yellow")),
                 pid("LOAD","%",0,100,1,      fl(0),fl(9e9f),cs("orange")),
                 pid("SPEED","MPH",0,100,0,   fl(0),fl(9e9f),cs("blue")),
-                pid("KNOCK","°",-6,0,2,      fl(0),fl(9e9f),cs("red")),
+                pid("CVT","°F",32,266,0,     fl(32,122,200,230),fl(122,200,230,9e9f),cs("blue","green","yellow","red")),
                 pid("MAF","G/S",0,200,1,     fl(0),fl(9e9f),cs("purple")),
                 pid("HP","HP",0,250,0,       fl(0),fl(9e9f),cs("accent")),
                 pid("CAT","°F",300,1800,0,   fl(0),fl(9e9f),cs("orange"))),
@@ -483,14 +491,15 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
 
     private float[][] getPageVals(DashData d) {
         return new float[][]{
-            {d.rpm, d.loadPct, d.pedalPct, d.timingDeg},                                  // 0 ENGINE
+            {d.rpm, d.mafGs, d.stftPct, d.ltftPct},                                       // 0 ENGINE
             {d.coolantF(), d.oilTempF(), d.cvtTempF(), d.catTempF()},                     // 1 TEMPS
-            {d.boostPsi(), d.wastegatePct},                                                // 2 BOOST
-            {d.rough1, d.rough2, d.rough3, d.rough4},                                     // 3 ROUGHNESS
-            {gLong, d.speedMph(), d.rpm, d.loadPct},                                      // 4 G-FORCE
-            {d.timingDeg, d.knockCorr, d.fineKnockDeg, d.damRatio},                       // 5 TIMING
-            {d.peakBoostPsi, d.peakRpm, d.peakTimingDeg, d.peakLoadPct,                   // 6 SESSION
-             d.peakSpeedMph, d.worstKnockCorr, d.peakMafGs, d.peakEstHp, d.peakCatTempF},
+            {d.boostPsi(), d.wastegatePct, d.injDutyCyclePct, d.stftPct},                 // 2 BOOST
+            {d.stftPct, d.ltftPct, d.injDutyCyclePct, d.injPulseMs},                      // 3 FUEL
+            {d.rough1, d.rough2, d.rough3, d.rough4},                                     // 4 ROUGHNESS
+            {gLong, d.speedMph(), d.rpm, d.loadPct},                                      // 5 G-FORCE
+            {d.timingDeg, d.stftPct, d.fineKnockDeg, d.damRatio},                         // 6 TIMING
+            {d.peakBoostPsi, d.peakRpm, d.peakTimingDeg, d.peakLoadPct,                   // 7 SESSION
+             d.peakSpeedMph, d.peakCvtTempF, d.peakMafGs, d.peakEstHp, d.peakCatTempF},
         };
     }
 
@@ -694,7 +703,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
     private static final float GM_CX=160,GM_CY=118,GM_R=72,GM_MG=1.0f;
 
     private void drawGMeter(Canvas c, Theme t) {
-        int col = bandColor(PAGES[4].pids[0], gLong, t);
+        int col = bandColor(PAGES[5].pids[0], gLong, t);
         fillP.setStyle(Paint.Style.FILL); fillP.setColor(t.panel); fillP.setAlpha(255);
         c.drawCircle(GM_CX, GM_CY, GM_R, fillP);
         for (float g : new float[]{0.25f, 0.5f, 0.75f, 1.0f}) {
@@ -788,11 +797,11 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         // Page counter
         sf(7,true,false); textP.setColor(t.white); textP.setTextAlign(Paint.Align.LEFT);
         c.drawText((pageIdx+1)+"/"+PAGES.length, 228, 17, textP);
-        // G force
-        float mag = Math.abs(gSmooth);
-        int gcol = mag<0.1f?t.cyan:mag<0.35f?t.green:mag<0.55f?t.yellow:t.red;
-        sf(11,true,true); textP.setColor(gcol); textP.setTextAlign(Paint.Align.RIGHT);
-        c.drawText((gSmooth>=0?"+":"")+String.format("%.2f",gSmooth)+"g", LW-4, 17, textP);
+        // Fuel level
+        float fl2 = d.fuelLevelPct;
+        int flcol = Float.isNaN(fl2) ? ac(t.label,128) : fl2 > 50f ? t.green : fl2 > 25f ? t.yellow : t.red;
+        sf(11,true,true); textP.setColor(flcol); textP.setTextAlign(Paint.Align.RIGHT);
+        c.drawText(Float.isNaN(fl2) ? "--%": String.format("%.0f%%", fl2), LW-4, 17, textP);
         hline(c, t, 26);
     }
 
@@ -909,7 +918,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         int eta=(int)((1-wpct)*240); String etaS=wdone?"WARM":(eta>=60?eta/60+"m"+(eta%60)+"s":eta+"s");
         String[] slbls={"RPM","SPD","WRM"};
         float[] svals={d.rpm, d.speedMph(), wdone?1f:wpct};
-        int[] scols={bandColor(PAGES[0].pids[0],d.rpm,t), bandColor(PAGES[4].pids[1],d.speedMph(),t), wdone?t.green:t.yellow};
+        int[] scols={bandColor(PAGES[0].pids[0],d.rpm,t), bandColor(PAGES[5].pids[1],d.speedMph(),t), wdone?t.green:t.yellow};
         String[] sstrs={fmtV(d.rpm,0), fmtV(d.speedMph(),0), etaS};
         int tw2=LW/3;
         for (int i=0;i<3;i++) {
@@ -961,7 +970,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         drawStripItem(c, t, 0,           topY, stripW, midY - topY, PAGES[0].pids[0], d.rpm,       "RPM",  "RPM");
         drawStripItem(c, t, 0,           midY, stripW, botY - midY, PAGES[2].pids[0], d.boostPsi(),"BOOST","PSI");
         // Right strip: Speed (top slot) + Oil (bottom slot)
-        drawStripItem(c, t, LW - stripW, topY, stripW, midY - topY, PAGES[4].pids[1], d.speedMph(),"SPD",  "MPH");
+        drawStripItem(c, t, LW - stripW, topY, stripW, midY - topY, PAGES[5].pids[1], d.speedMph(),"SPD",  "MPH");
         drawStripItem(c, t, LW - stripW, midY, stripW, botY - midY, PAGES[1].pids[1], d.oilTempF(),"OIL",  "°F");
     }
 
@@ -1148,7 +1157,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         for (int ci=0; ci<4; ci++) {
             float rv = roughVals[ci];
             boolean rvNaN = Float.isNaN(rv);
-            PidDef pid = PAGES[3].pids[ci];
+            PidDef pid = PAGES[4].pids[ci];
             int col = rvNaN ? ac(t.label, 0.35f) : bandColor(pid, rv, t);
             float rY = rowY[ci][0];
             float pisPos = (1 - cos(engAngle + FA20_PHASE[ci])) / 2f;
@@ -1234,7 +1243,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         for (int i=0; i<4; i++) {
             float cx2=i*(cW+2)+2;
             float rv=roughVals[i]; boolean rvNaN2=Float.isNaN(rv);
-            PidDef pid=PAGES[3].pids[i];
+            PidDef pid=PAGES[4].pids[i];
             int col = rvNaN2 ? ac(t.label, 0.35f) : bandColor(pid,rv,t);
             float nv = rvNaN2 ? 0f : nrm(pid,rv);
             fillRect(c,cx2,cY2,cW,cH, t.panel, 1f);
@@ -1259,7 +1268,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         // Status strip — RPM + Speed (ends at y=458 to leave room for dot strip at y=460)
         DashData ds=DashData.get();
         fillRect(c,0,396,LW,64, t.dim, 1f);
-        int[] scols2={Float.isNaN(ds.rpm)?ac(t.label,0.35f):bandColor(PAGES[0].pids[0],ds.rpm,t), Float.isNaN(ds.speedMph())?ac(t.label,0.35f):bandColor(PAGES[4].pids[1],ds.speedMph(),t), ds.connected?t.green:t.orange};
+        int[] scols2={Float.isNaN(ds.rpm)?ac(t.label,0.35f):bandColor(PAGES[0].pids[0],ds.rpm,t), Float.isNaN(ds.speedMph())?ac(t.label,0.35f):bandColor(PAGES[5].pids[1],ds.speedMph(),t), ds.connected?t.green:t.orange};
         String[] slbls2={"RPM","MPH","OBD"}; String[] svals2={Float.isNaN(ds.rpm)?"---":String.valueOf(Math.round(ds.rpm)),Float.isNaN(ds.speedMph())?"---":String.valueOf(Math.round(ds.speedMph())),ds.btStatus};
         for(int i=0;i<3;i++){
             int sx3=i*(LW/3);
@@ -1282,11 +1291,11 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         hline(c,t,53);
 
         DashData d = DashData.get();
-        float[] pkVals = {d.peakBoostPsi,d.peakRpm,d.peakTimingDeg,d.peakLoadPct,d.peakSpeedMph,d.worstKnockCorr,d.peakMafGs,d.peakEstHp,d.peakCatTempF};
-        String[] pkLbls = {"PEAK BOOST","PEAK RPM","PEAK TIMING","PEAK LOAD","PEAK SPEED","WORST KNOCK","PEAK MAF","PEAK HP","PEAK CAT"};
-        String[] pkUnits= {"PSI","RPM","°","%","MPH","°","G/S","HP","°F"};
-        int[] pkColors  = {t.cyan,t.green,t.yellow,t.orange,t.blue,t.red,t.purple,t.accent,t.orange};
-        int[] pkDecs    = {2,0,1,1,0,2,1,0,0};
+        float[] pkVals = {d.peakBoostPsi,d.peakRpm,d.peakTimingDeg,d.peakLoadPct,d.peakSpeedMph,d.peakCvtTempF,d.peakMafGs,d.peakEstHp,d.peakCatTempF};
+        String[] pkLbls = {"PEAK BOOST","PEAK RPM","PEAK TIMING","PEAK LOAD","PEAK SPEED","PEAK CVT","PEAK MAF","PEAK HP","PEAK CAT"};
+        String[] pkUnits= {"PSI","RPM","°","%","MPH","°F","G/S","HP","°F"};
+        int[] pkColors  = {t.cyan,t.green,t.yellow,t.orange,t.blue,t.cyan,t.purple,t.accent,t.orange};
+        int[] pkDecs    = {2,0,1,1,0,0,1,0,0};
         int cols=3,rows=3,startY=52,tW=LW/cols,tH=(LH-startY-54)/rows;
         for (int i=0;i<9;i++) {
             int col2=i%cols, row2=i/cols;
@@ -1321,22 +1330,20 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         c.drawColor(t.bg);
         DashData d = DashData.get();
         float spd=d.speedMph(), rpm=d.rpm, boost=d.boostPsi(), tgtMap=d.targetMapPsi();
-        float load=d.loadPct, oil=d.oilTempF(), knock=d.knockCorr;
+        float load=d.loadPct, oil=d.oilTempF(), cvtDm=d.cvtTempF();
 
         PidDef rpmPid=PAGES[0].pids[0], bstPid=PAGES[2].pids[0];
-        PidDef lodPid=PAGES[0].pids[1], oilPid=PAGES[1].pids[1];
-        PidDef knkPid=PAGES[5].pids[1];  // index 1 = KNOCK CORR on TIMING page (index 5)
+        PidDef lodPid=PAGES[5].pids[3], oilPid=PAGES[1].pids[1];  // load from G-FORCE page (ENGINE page[1] is now MAF)
+        PidDef cvtDmPid=PAGES[1].pids[2];  // CVT temp from TEMPS page
 
         int bstCol=Float.isNaN(boost)?ac(t.label,0.35f):bandColor(bstPid,boost,t);
         int lodCol=Float.isNaN(load)?ac(t.label,0.35f):bandColor(lodPid,load,t);
         int oilCol=Float.isNaN(oil)?ac(t.label,0.35f):bandColor(oilPid,oil,t);
-        boolean kActive=!Float.isNaN(knock)&&knock<-2.5f;
-        int knkCol=Float.isNaN(knock)?ac(t.label,0.35f):kActive?t.red:knock<-0.1f?t.orange:t.green;
+        int cvtDmCol=Float.isNaN(cvtDm)?ac(t.label,0.35f):bandColor(cvtDmPid,cvtDm,t);
 
         float rpmN=Float.isNaN(rpm)?0f:nrm(rpmPid,rpm);
         float bstN=Float.isNaN(boost)?0f:nrm(bstPid,boost);
         float tgtN=Float.isNaN(tgtMap)?0f:nrm(bstPid,tgtMap);
-        long ms=System.currentTimeMillis(); float pulse=0.5f+0.5f*(float)Math.abs(Math.sin(ms*0.006));
         int heroH=195;
 
         fillRect(c, 0,0,LW,3, t.accent, 1f);
@@ -1381,27 +1388,26 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
 
         // 4 tiles
         int tileY=heroH+65, tileH=LH-tileY, tW3=LW/4;
-        float[] tVals={boost,load,oil,knock};
-        int[]   tCols={bstCol,lodCol,oilCol,knkCol};
-        String[]tLbls={"BOOST","LOAD","OIL","KNOCK"};
-        String[]tUnits={"PSI","%","°F","°"};
-        PidDef[]tPids={bstPid,lodPid,oilPid,knkPid};
-        String[]tDisps={Float.isNaN(boost)?"---":(boost>=0?"+":"")+String.format("%.1f",boost),Float.isNaN(load)?"---":String.valueOf(Math.round(load)),Float.isNaN(oil)?"---":String.valueOf(Math.round(oil)),Float.isNaN(knock)?"---":String.format("%.2f",knock)};
+        float[] tVals={boost,load,oil,cvtDm};
+        int[]   tCols={bstCol,lodCol,oilCol,cvtDmCol};
+        String[]tLbls={"BOOST","LOAD","OIL","CVT"};
+        String[]tUnits={"PSI","%","°F","°F"};
+        PidDef[]tPids={bstPid,lodPid,oilPid,cvtDmPid};
+        String[]tDisps={Float.isNaN(boost)?"---":(boost>=0?"+":"")+String.format("%.1f",boost),Float.isNaN(load)?"---":String.valueOf(Math.round(load)),Float.isNaN(oil)?"---":String.valueOf(Math.round(oil)),Float.isNaN(cvtDm)?"---":String.valueOf(Math.round(cvtDm))};
         for (int i=0;i<4;i++) {
             int tx=i*tW3, ty=tileY;
-            int col=tCols[i]; boolean isK=i==3;
+            int col=tCols[i];
             float nv2=Float.isNaN(tVals[i])?0f:nrm(tPids[i],tVals[i]);
             fillRect(c, tx,ty,tW3,tileH, t.panel, 1f);
             if(i>0) fillRect(c, tx,ty,1,tileH, t.border, 0.22f);
-            fillRect(c, tx,ty,tW3,3, isK&&kActive?t.red:col, 1f);
-            fillRect(c, tx,ty+3,tW3,22, col, isK&&kActive?pulse*0.12f:0.14f);
+            fillRect(c, tx,ty,tW3,3, col, 1f);
+            fillRect(c, tx,ty+3,tW3,22, col, 0.14f);
             sf(9,true,false); textP.setColor(t.white); textP.setAlpha(255); textP.setTextAlign(Paint.Align.CENTER);
             c.drawText(tLbls[i], tx+tW3/2f, ty+20, textP);
             String comb=tDisps[i]+" "+tUnits[i]; int dl=comb.length();
             float vFs=dl<=5?26: dl<=7?20: dl<=9?16:13;
             sf(vFs,true,true); textP.setTextAlign(Paint.Align.CENTER);
-            int fgCol=isK&&kActive?(pulse>0.5f?t.red:t.white):t.white;
-            textShadow(c, comb, tx+tW3/2f, ty+(int)(tileH*0.58f), t.bg, fgCol);
+            textShadow(c, comb, tx+tW3/2f, ty+(int)(tileH*0.58f), t.bg, t.white);
             fillRect(c, tx+4,LH-10,tW3-8,4, t.bg, 1f);
             fillRect(c, tx+4,LH-10,(int)(nv2*(tW3-8)),4, col, 1f);
         }
