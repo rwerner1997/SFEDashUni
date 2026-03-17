@@ -333,15 +333,14 @@ public class OBDManager {
                 parseFuelLevel(sendCmd("012F"));   // fuel tank level (Mode 01)
                 parseBattery(sendCmd("ATRV"));
 
-                // Force ATSH + ATCRA re-send: cheap ELM clones may silently reset ATCRA
-                // when ATSH changes (e.g. 7DF→7E0), leaving the filter stale and causing
-                // the ECU response to be missed or mixed with bus noise from other ECUs.
-                setHeaderForce("7E0", "7E8");
-                parseTargetMAP(sendM22("223050", CMD_TIMEOUT_SLOW));
                 // 22309A (batt temp) dropped — field never displayed or alerted on.
+                // 223050 (target MAP) dropped — returns 7F2231 (requestOutOfRange) on every
+                // poll; confirmed across full session log sfe_20260317_081442.csv (538/538 ERR).
                 // CVT temp: TCU 2210D2, formula byte-50 °C.
                 // Confirmed across 3 reference points (pid_scan_20260315, _0316_083419, _084742).
                 // 2210C9 swings wildly with braking/acceleration — not a temp sensor.
+                // Force ATSH + ATCRA re-send for TCU: cheap ELM clones may silently reset ATCRA
+                // when ATSH changes (e.g. 7DF→7E1), leaving the filter stale.
                 setHeaderForce("7E1", "7E9");
                 parseCVTTemp(sendM22("2210D2", CMD_TIMEOUT_SLOW));
                 setHeaderForce("7E0", "7E8");
