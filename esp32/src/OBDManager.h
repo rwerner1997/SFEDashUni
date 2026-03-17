@@ -9,6 +9,14 @@
 // Mirrors OBDManager.java: same three polling tiers, same Mode 22 PIDs,
 // same header-caching strategy to minimise ATSH/ATCRA round-trips.
 //
+// Tier 1 (~20 Hz): RPM (010C), MAP (010B)
+// Tier 2 (~7 Hz):  Speed, Timing, MAF, Pedal, Load, STFT, LTFT,
+//                  Wastegate (2210A8), Fine Knock (2210B0), VVT-L (2210B9)
+// Tier 3a (~1 Hz): Coolant, Oil, CAT, Baro, Fuel, Battery,
+//                  CVT Temp (2210D2 @ TCU 7E1, byte-50), Batt Temp, Roughness*
+// Tier 3d (~1 Hz): DAM (2210B1, /16)
+// *Roughness polled only when page 4 (ENGINE VITALS) or page 5 (ROUGHNESS) active.
+//
 // Runs on a dedicated FreeRTOS task (core 1, 8KB stack).
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -68,13 +76,9 @@ private:
     void parseBattery(const String& r);
 
     // ── Mode 22 parsers ───────────────────────────────────────────────────────
-    void parseThrottleAngle(const String& r);
-    void parseBoostDirect(const String& r);
-    void parseKnockCorr(const String& r);
     void parseWastegate(const String& r);
-    void parseIAT(const String& r);
     void parseFineKnock(const String& r);
-    void parseTargetMAP(const String& r);
+    void parseVvtAngleL(const String& r);
     void parseBattTemp(const String& r);
     void parseCVTTemp(const String& r);
     void parseDAM(const String& r);
