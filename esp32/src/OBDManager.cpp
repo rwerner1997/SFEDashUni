@@ -132,6 +132,15 @@ void OBDManager::initELM327() {
 }
 
 // ── Main poll loop ─────────────────────────────────────────────────────────
+//
+// Tier 1 (~20 Hz): RPM (010C), MAP (010B)
+// Tier 2 (~7 Hz):  Speed, Timing, MAF, Pedal, Load, STFT, LTFT,
+//                  Wastegate, Fine Knock, VVT-L
+// Tier 3a (~1 Hz): Slow sensors + CVT temp (TCU 7E1, PID 2210D2)
+// Tier 3d (~1 Hz): DAM (2210B1)
+//
+// Header switching is expensive (2× AT round-trips). Tiers are ordered so
+// Mode 01 (7DF/7E8) and Mode 22 ECU (7E0/7E8) blocks are grouped together.
 
 void OBDManager::pollLoop() {
     int  loopCount = 0;
@@ -145,15 +154,15 @@ void OBDManager::pollLoop() {
     while (_running && _bt.connected()) {
         unsigned long t0 = millis();
 
-        // ── TIER 1: every loop (~20 Hz) — RPM + speed ─────────────────────
+        // ── TIER 1: every loop (~20 Hz) — RPM + MAP ────────────────────────
         setHeader("7DF", "7E8");
         parseRPM(sendCmd("010C"));
-        parseSpeed(sendCmd("010D"));
+        parseMAP(sendCmd("010B"));
 
-        // ── TIER 2: every 3rd loop (~7 Hz) ───────────────────────────────
+        // ── TIER 2: every 3rd loop (~7 Hz) ────────────────────────────────
         if (loopCount % 3 == 0) {
             setHeader("7DF", "7E8");
-            parseMAP(sendCmd("010B"));
+            parseSpeed(sendCmd("010D"));
             parseTiming(sendCmd("010E"));
             parseMAF(sendCmd("0110"));
             parsePedal(sendCmd("0145"));
@@ -162,12 +171,9 @@ void OBDManager::pollLoop() {
             parseLTFT(sendCmd("0107"));
 
             setHeader("7E0", "7E8");
-            parseThrottleAngle(sendCmdTimeout("221022", CMD_TIMEOUT_SLOW));
-            parseBoostDirect(sendCmdTimeout("2210A6", CMD_TIMEOUT_SLOW));
-            parseKnockCorr(sendCmdTimeout("223018", CMD_TIMEOUT_SLOW));
             parseWastegate(sendCmdTimeout("2210A8", CMD_TIMEOUT_SLOW));
-            parseIAT(sendCmdTimeout("22101F", CMD_TIMEOUT_SLOW));
             parseFineKnock(sendCmdTimeout("2210B0", CMD_TIMEOUT_SLOW));
+            parseVvtAngleL(sendCmdTimeout("2210B9", CMD_TIMEOUT_SLOW));
         }
 
         // ── TIER 3a: every 10th loop (~1 Hz) — slow/temps ─────────────────
@@ -182,15 +188,18 @@ void OBDManager::pollLoop() {
             parseFuelLevel(sendCmd("012F"));
             parseBattery(sendCmd("ATRV"));
 
-            // Force ATSH+ATCRA re-send: cheap ELM clones may silently drop ATCRA
-            // when ATSH changes, causing ECU responses to be missed.
-            setHeaderForce("7E0", "7E8");
-            parseCVTTemp(sendCmdTimeout("221021", CMD_TIMEOUT_SLOW));
-            parseTargetMAP(sendCmdTimeout("223050", CMD_TIMEOUT_SLOW));
+            setHeader("7E0", "7E8");
             parseBattTemp(sendCmdTimeout("22309A", CMD_TIMEOUT_SLOW));
 
-            // Roughness only on page 3
-            if (ap == 3) {
+            // CVT temp: PID 2210D2 on TCU (7E1/7E9), formula: byte - 50 °C
+            // Use setHeaderForce — cheap ELM clones silently drop ATCRA on ATSH change.
+            setHeaderForce("7E1", "7E9");
+            parseCVTTemp(sendCmdTimeout("2210D2", CMD_TIMEOUT_SLOW));
+
+            // Roughness polled when on ENGINE VITALS (page 4) or ROUGHNESS (page 5).
+            // Switch back to ECU header for roughness (7E0/7E8).
+            if (ap == 4 || ap == 5) {
+                setHeaderForce("7E0", "7E8");
                 parseRoughness(sendCmdTimeout("223062", CMD_TIMEOUT_ROUGH), 1);
                 parseRoughness(sendCmdTimeout("223048", CMD_TIMEOUT_ROUGH), 2);
                 parseRoughness(sendCmdTimeout("223068", CMD_TIMEOUT_ROUGH), 3);
@@ -326,14 +335,26 @@ void OBDManager::parseRPM(const String& r) {
     if (isError(s) || s.length() < 8) return;
     int a = byteAt(s, 2), b = byteAt(s, 3);
     if (a < 0 || b < 0) return;
-    _data.rpm = (a * 256.0f + b) / 4.0f;
+    float newVal = (a * 256.0f + b) / 4.0f;
+    unsigned long now = millis();
+    if (!isnan(_data.rpm) && _data.rpmLastMs > 0 && now > _data.rpmLastMs) {
+        _data.rpmVelPerMs = (newVal - _data.rpm) / (float)(now - _data.rpmLastMs);
+    }
+    _data.rpm = newVal;
+    _data.rpmLastMs = now;
 }
 
 void OBDManager::parseSpeed(const String& r) {
     String s = strip(r);
     if (isError(s) || s.length() < 6) return;
     int a = byteAt(s, 2); if (a < 0) return;
-    _data.speedKph = (float)a;
+    float newVal = (float)a;
+    unsigned long now = millis();
+    if (!isnan(_data.speedKph) && _data.speedLastMs > 0 && now > _data.speedLastMs) {
+        _data.speedVelPerMs = (newVal - _data.speedKph) / (float)(now - _data.speedLastMs);
+    }
+    _data.speedKph = newVal;
+    _data.speedLastMs = now;
 }
 
 void OBDManager::parsePedal(const String& r) {
@@ -376,7 +397,13 @@ void OBDManager::parseMAP(const String& r) {
     String s = strip(r);
     if (isError(s) || s.length() < 6) return;
     int a = byteAt(s, 2); if (a < 0) return;
-    _data.mapKpa = (float)a;
+    float newVal = (float)a;
+    unsigned long now = millis();
+    if (!isnan(_data.mapKpa) && _data.mapLastMs > 0 && now > _data.mapLastMs) {
+        _data.mapVelPerMs = (newVal - _data.mapKpa) / (float)(now - _data.mapLastMs);
+    }
+    _data.mapKpa = newVal;
+    _data.mapLastMs = now;
 }
 
 void OBDManager::parseBaro(const String& r) {
@@ -421,7 +448,9 @@ void OBDManager::parseFuelLevel(const String& r) {
     String s = strip(r);
     if (isError(s) || s.length() < 6) return;
     int a = byteAt(s, 2); if (a < 0) return;
-    _data.fuelLevelPct = a / 2.55f;
+    float raw = a / 2.55f;
+    // EMA α=0.05: smooths ADC noise at ~7 Hz poll rate (time constant ~3s)
+    _data.fuelLevelPct = isnan(_data.fuelLevelPct) ? raw : _data.fuelLevelPct * 0.95f + raw * 0.05f;
 }
 
 void OBDManager::parseBattery(const String& r) {
@@ -436,38 +465,10 @@ void OBDManager::parseBattery(const String& r) {
 
 // ── Mode 22 parsers ───────────────────────────────────────────────────────────
 
-void OBDManager::parseThrottleAngle(const String& r) {
-    if (isError(r)) return;
-    int a = m22byte(r, 0); if (a < 0) return;
-    _data.throttlePct = a / 255.0f * 100.0f;
-}
-
-void OBDManager::parseBoostDirect(const String& r) {
-    // 2210A6 — direct boost pressure; formula unverified on car
-    if (isError(r)) return;
-    int a = m22byte(r, 0); if (a < 0) return;
-    _data.boostPsiDirect = a / 10.0f - 14.7f;
-}
-
-void OBDManager::parseKnockCorr(const String& r) {
-    // 223018 — feedback knock correction (ScanGauge KRC confirmed for FA20DIT WRX)
-    // Note: 2210AF = Engine Oil Temp (ScanGauge EOT), NOT knock — do not use
-    if (isError(r)) return;
-    int a = m22byte(r, 0); if (a < 0) return;
-    _data.knockCorr = a / 4.0f - 32.0f;
-}
-
 void OBDManager::parseWastegate(const String& r) {
     if (isError(r)) return;
     int a = m22byte(r, 0); if (a < 0) return;
     _data.wastegatePct = a / 2.55f;
-}
-
-void OBDManager::parseIAT(const String& r) {
-    if (isError(r)) return;
-    int a = m22byte(r, 0); if (a < 0) return;
-    float v = a - 40.0f;
-    if (v > -41.0f && v < 200.0f) _data.iatC = v;
 }
 
 void OBDManager::parseFineKnock(const String& r) {
@@ -476,10 +477,11 @@ void OBDManager::parseFineKnock(const String& r) {
     _data.fineKnockDeg = a / 4.0f - 32.0f;
 }
 
-void OBDManager::parseTargetMAP(const String& r) {
+void OBDManager::parseVvtAngleL(const String& r) {
+    // 2210B9 — VVT intake-left cam angle; signed byte / 2 → degrees
     if (isError(r)) return;
     int a = m22byte(r, 0); if (a < 0) return;
-    _data.targetMapKpa = (float)a;
+    _data.vvtAngleL = (float)(int8_t)a / 2.0f;
 }
 
 void OBDManager::parseBattTemp(const String& r) {
@@ -489,18 +491,21 @@ void OBDManager::parseBattTemp(const String& r) {
 }
 
 void OBDManager::parseCVTTemp(const String& r) {
-    // 221021 on ECM (7E0) — confirmed working; 221017 returns 7F2231 (not supported)
+    // 2210D2 on TCU (7E1/7E9) — confirmed dynamic across three drive sessions.
+    // Formula: byte - 50 → °C.  Range check: 0x63=49°C, 0x7D=75°C, 0x81=79°C all verified.
     if (isError(r)) return;
     int a = m22byte(r, 0); if (a < 0) return;
-    float v = a - 40.0f;
-    if (v > -41.0f && v < 250.0f) _data.cvtTempC = v;
+    float v = a - 50.0f;
+    if (v > -51.0f && v < 200.0f) _data.cvtTempC = v;
 }
 
 void OBDManager::parseDAM(const String& r) {
-    // 2210B1 — dynamic advance multiplier; formula unverified on car
+    // 2210B1 — dynamic advance multiplier.
+    // FA20DIT encodes as 0–16 counts; 16 = 1.0 (full advance).
+    // Observed: 0x00, 0x01, 0x03, 0x0C across sessions.
     if (isError(r)) return;
     int a = m22byte(r, 0); if (a < 0) return;
-    _data.damRatio = a / 255.0f;
+    _data.damRatio = a / 16.0f;
 }
 
 void OBDManager::parseRoughness(const String& r, int cyl) {
