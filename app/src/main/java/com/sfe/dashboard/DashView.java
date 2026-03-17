@@ -441,13 +441,13 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         float dt = (now - engLastMs) / 1000f;
         engLastMs = now;
         dt = Math.min(dt, 0.050f);
-        float rpm = DashData.get().rpm;
+        float rpm = DashData.get().rpmEst();  // velocity-extrapolated: smooth between OBD polls
         // Stop animation when engine is not running or data not yet received
         if (Float.isNaN(rpm) || rpm < 300f) {
             engRpmSmooth = 0f;
             return;
         }
-        engRpmSmooth += (rpm - engRpmSmooth) * Math.min(1f, dt * 4f);
+        engRpmSmooth += (rpm - engRpmSmooth) * Math.min(1f, dt * 8f);  // faster tracking: rpmEst is already smooth
         engAngle += engRpmSmooth / 60f * (float)(Math.PI * 2) * dt * 0.25f;
     }
 
@@ -873,8 +873,8 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             if (isH) glowRect(c,cx,cy,cw,ch, col, noData?0.2f:0.5f);
             else strokeRect(c,cx,cy,cw,ch, t.border, 0.4f, 1f);
             cbrk(c, cx,cy,cw,ch, ac(isH?col:t.accent, 0.25f), 5);
-            sf(9,true,false); textP.setColor(t.white); textP.setAlpha(255); textP.setTextAlign(Paint.Align.LEFT);
-            c.drawText(pid.lbl, cx+8, cy+17, textP);
+            sf(11,true,false); textP.setColor(t.white); textP.setAlpha(255); textP.setTextAlign(Paint.Align.LEFT);
+            c.drawText(pid.lbl, cx+8, cy+18, textP);
             String vs = noData ? "---" : fmtV(v, pid.dec);
             float fs = vs.length()<=3?30: vs.length()<=5?24: vs.length()<=7?20:15;
             sf(fs,true,true); textP.setTextAlign(Paint.Align.LEFT);

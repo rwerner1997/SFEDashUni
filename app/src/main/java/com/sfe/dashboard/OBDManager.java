@@ -1090,7 +1090,9 @@ public class OBDManager {
         // PID 012F — Fuel Level Input (0-255 raw → 0-100%)
         r = strip(r); if (isError(r) || r.length() < 6) return;
         int a = byteAt(r, 2); if (a < 0) return;
-        data.fuelLevelPct = a / 2.55f;
+        float raw = a / 2.55f;
+        // Heavy EMA (α=0.05, ~3s time constant at 7Hz) — fuel float sensor is noisy
+        data.fuelLevelPct = Float.isNaN(data.fuelLevelPct) ? raw : data.fuelLevelPct * 0.95f + raw * 0.05f;
     }
 
     // ── Utility ───────────────────────────────────────────────────

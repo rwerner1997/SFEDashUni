@@ -35,7 +35,7 @@ public class DashData {
     public volatile float mapKpa     = Float.NaN; // 221024 — absolute MAP kPa
     public volatile float stftPct    = Float.NaN; // 0106 Mode 01
     public volatile float ltftPct    = Float.NaN; // 0107 Mode 01
-    public volatile float baroKpa    = Float.NaN; // 0133 Mode 01 — updated once at connect
+    public volatile float baroKpa    = 101.3f;    // 0133 Mode 01 — default std atmosphere; overwritten on first successful poll
     public volatile float battV      = Float.NaN;
 
     // ── MODE 22 ECU (AT SH 7E0) ──────────────────────────────────
