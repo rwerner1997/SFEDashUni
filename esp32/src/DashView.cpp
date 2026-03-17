@@ -473,9 +473,10 @@ void DashView::drawSessionPage() {
         { "PEAK LOAD",    _data.peakLoadPct,                "%.0f",  "%"   },
         { "PEAK SPEED",   _data.peakSpeedMph,               "%.0f",  " mph" },
         { "PEAK CVT",     _data.peakCvtTempF,               "%.0f",  "\xB0F"},
-        { "PEAK MAF",     _data.peakMafGs,                  "%.1f",  " g/s" },
-        { "PEAK HP",      _data.peakEstHp,                  "%.0f",  " hp"  },
-        { "KNOCK EVENTS", (float)_data.knockEventCount,    "%.0f",  ""     },
+        { "PEAK MAF",     _data.peakMafGs,                   "%.1f",  " g/s" },
+        { "PEAK HP",      _data.peakEstHp,                   "%.0f",  " hp"  },
+        { "PEAK CAT",     _data.peakCatTempF,                "%.0f",  "\xB0F"},
+        { "KNOCK EVENTS", (float)_data.knockEventCount,     "%.0f",  ""     },
     };
 
     int y = 8;
@@ -750,6 +751,19 @@ void DashView::drawEngineBlock(float crankDeg, float vvtDeg,
     c->drawString("4", rInner + (rWall - rInner)/2, cyl4Y - 2);
 }
 
+// ── Colour blend helper (RGB565) ─────────────────────────────────────────────
+// t=0.0 → returns a, t=1.0 → returns b, t=0.5 → midpoint.
+
+static uint16_t blendColor(uint16_t a, uint16_t b, float t) {
+    t = constrain(t, 0.0f, 1.0f);
+    uint8_t ar = (a >> 11) & 0x1F, ag = (a >> 5) & 0x3F, ab = a & 0x1F;
+    uint8_t br = (b >> 11) & 0x1F, bg = (b >> 5) & 0x3F, bb = b & 0x1F;
+    uint8_t r  = (uint8_t)(ar + (int)((br - ar) * t));
+    uint8_t g  = (uint8_t)(ag + (int)((bg - ag) * t));
+    uint8_t bl = (uint8_t)(ab + (int)((bb - ab) * t));
+    return (uint16_t)((r << 11) | (g << 5) | bl);
+}
+
 // ── Arc gauge ─────────────────────────────────────────────────────────────────
 
 void DashView::drawArcGauge(int cx, int cy, int r,
@@ -766,7 +780,21 @@ void DashView::drawArcGauge(int cx, int cy, int r,
     if (c) c->drawArc(cx, cy, r, r - 12, (int)START_DEG, (int)(START_DEG + SWEEP_DEG), COL_DIM, COL_BG);
     else   _tft.drawArc(cx, cy, r, r - 12, (int)START_DEG, (int)(START_DEG + SWEEP_DEG), COL_DIM, COL_BG);
 
-    // Value arc
+    // Tick marks: 21 ticks (every 12° of the 240° sweep), major every 4th
+    if (c) {
+        for (int i = 0; i <= 20; i++) {
+            float tickRad = (START_DEG + (i / 20.0f) * SWEEP_DEG) * (float)M_PI / 180.0f;
+            bool major = (i % 4 == 0);
+            int len = major ? 7 : 4;
+            int x0 = cx + (int)(cosf(tickRad) * (r - 13));
+            int y0 = cy + (int)(sinf(tickRad) * (r - 13));
+            int x1 = cx + (int)(cosf(tickRad) * (r - 13 + len));
+            int y1 = cy + (int)(sinf(tickRad) * (r - 13 + len));
+            c->drawLine(x0, y0, x1, y1, major ? COL_DIM : 0x2104);
+        }
+    }
+
+    // Value arc + glow rings + end dot
     if (!isnan(v) && vmax > vmin) {
         float pct = constrain((v - vmin) / (vmax - vmin), 0.0f, 1.0f);
         float endDeg = START_DEG + pct * SWEEP_DEG;
@@ -775,8 +803,26 @@ void DashView::drawArcGauge(int cx, int cy, int r,
         if (!isnan(dangerAt) && v >= dangerAt) col = COL_DANGER;
         else if (!isnan(warnAt) && v >= warnAt) col = COL_WARN;
 
-        if (c) c->drawArc(cx, cy, r, r - 12, (int)START_DEG, (int)endDeg, col, COL_BG);
-        else   _tft.drawArc(cx, cy, r, r - 12, (int)START_DEG, (int)endDeg, col, COL_BG);
+        if (c) {
+            // Outer glow rings (simulate alpha by blending toward background)
+            uint16_t g1 = blendColor(col, COL_BG, 0.75f);  // faint outer ring
+            uint16_t g2 = blendColor(col, COL_BG, 0.55f);  // medium ring
+            c->drawArc(cx, cy, r + 5, r + 3, (int)START_DEG, (int)endDeg, g1, COL_BG);
+            c->drawArc(cx, cy, r + 2, r,     (int)START_DEG, (int)endDeg, g2, COL_BG);
+            // Main value arc
+            c->drawArc(cx, cy, r, r - 12, (int)START_DEG, (int)endDeg, col, COL_BG);
+            // End-of-arc dot
+            if (pct > 0.01f) {
+                float endRad = endDeg * (float)M_PI / 180.0f;
+                int ex = cx + (int)(cosf(endRad) * (r - 6));
+                int ey = cy + (int)(sinf(endRad) * (r - 6));
+                c->fillCircle(ex, ey, 5, blendColor(col, COL_BG, 0.4f));
+                c->fillCircle(ex, ey, 3, col);
+                c->fillCircle(ex, ey, 1, COL_TEXT);
+            }
+        } else {
+            _tft.drawArc(cx, cy, r, r - 12, (int)START_DEG, (int)endDeg, col, COL_BG);
+        }
     }
 
     // Value text

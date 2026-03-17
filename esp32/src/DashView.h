@@ -32,7 +32,7 @@
 //   #                  ← mute alerts 5 min
 // ─────────────────────────────────────────────────────────────────────────────
 
-static constexpr int PAGE_COUNT = 8;
+static constexpr int PAGE_COUNT = 9;
 
 // ── Screen geometry ───────────────────────────────────────────────────────────
 static constexpr int STRIP_W    = 55;

@@ -355,8 +355,15 @@ void OBDManager::parseSpeed(const String& r) {
     float raw = (float)a;
     float prev = _data.speedKph;
     unsigned long now = millis();
-    // EMA α=0.4: ~0.12s time constant at 7 Hz — smooths 1 kph quantization steps
-    float next = isnan(prev) ? raw : prev * 0.6f + raw * 0.4f;
+    // Snap to zero immediately — OBD speed is 1 kph quantized so there is no noise
+    // at 0 kph; EMA would otherwise take 2–3 s to converge to 0 after a full stop.
+    // For non-zero values use EMA α=0.4 to smooth 1 kph quantization steps.
+    float next;
+    if (raw == 0.0f) {
+        next = 0.0f;
+    } else {
+        next = isnan(prev) ? raw : prev * 0.6f + raw * 0.4f;
+    }
     if (!isnan(prev) && _data.speedLastMs > 0 && now > _data.speedLastMs) {
         _data.speedVelPerMs = (next - prev) / (float)(now - _data.speedLastMs);
     }

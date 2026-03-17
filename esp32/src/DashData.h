@@ -83,18 +83,26 @@ struct DashData {
 
     float estHp() const { return mafGs * 0.82f; }
 
-    // ── Velocity-extrapolated getters (cap at 80 ms age) ─────────────────────
+    // ── Velocity-extrapolated getters ────────────────────────────────────────
+    // RPM: extrapolate up to 300 ms so tier-2/3 poll gaps don't freeze the needle.
+    // Velocity decays exponentially (τ=150 ms) so the needle slows to a stop
+    // naturally when no new data arrives rather than shooting off linearly.
+    // Displacement = vel * τ * (1 − e^(−t/τ)) — integral of decaying velocity.
     float rpmEst() const {
-        if (isnan(rpm)) return rpm;
-        unsigned long age = millis() - rpmLastMs;
-        if (age > 80 || rpmLastMs == 0) return rpm;
-        return rpm + rpmVelPerMs * (float)age;
+        if (isnan(rpm) || rpmLastMs == 0) return rpm;
+        float age = (float)(millis() - rpmLastMs);
+        if (age > 300.0f) return rpm;
+        constexpr float TAU = 150.0f;
+        float proj = rpmVelPerMs * TAU * (1.0f - expf(-age / TAU));
+        return fmaxf(0.0f, rpm + proj);
     }
+    // Speed: plain linear extrapolation — snap-to-zero in parseSpeed already
+    // handles the stop case; 150 ms cap covers normal poll gaps.
     float speedKphEst() const {
-        if (isnan(speedKph)) return speedKph;
-        unsigned long age = millis() - speedLastMs;
-        if (age > 80 || speedLastMs == 0) return speedKph;
-        return speedKph + speedVelPerMs * (float)age;
+        if (isnan(speedKph) || speedLastMs == 0) return speedKph;
+        float age = (float)(millis() - speedLastMs);
+        if (age > 150.0f) return speedKph;
+        return fmaxf(0.0f, speedKph + speedVelPerMs * age);
     }
     float speedMphEst() const { return speedKphEst() * 0.621371f; }
     float boostPsiEst() const {
