@@ -84,8 +84,41 @@ public class DashData {
     public volatile String  scanPhase    = "";       // e.g. "ECM 10A3" or "DONE — 23 OK"
     public volatile float   scanProgress = 0f;      // 0.0 → 1.0
 
+    // ── Velocity extrapolation state (written by OBDManager poll thread) ────────
+    // Render thread uses these to interpolate displayed values between OBD samples.
+    public volatile float rpmVelPerMs   = 0f;  // RPM per millisecond
+    public volatile long  rpmLastMs     = 0;
+    public volatile float speedVelPerMs = 0f;  // kph per millisecond
+    public volatile long  speedLastMs   = 0;
+    public volatile float mapVelPerMs   = 0f;  // kPa per millisecond
+    public volatile long  mapLastMs     = 0;
+
+    /** RPM extrapolated from last OBD sample using measured rate of change.
+     *  Age capped at 80 ms (~1.5× a 20 Hz OBD frame) to prevent runaway. */
+    public float rpmEst() {
+        if (Float.isNaN(rpm)) return Float.NaN;
+        long age = Math.min(System.currentTimeMillis() - rpmLastMs, 80L);
+        return Math.max(0f, rpm + rpmVelPerMs * age);
+    }
+
+    /** Speed (kph) extrapolated from last OBD sample. */
+    public float speedKphEst() {
+        if (Float.isNaN(speedKph)) return Float.NaN;
+        long age = Math.min(System.currentTimeMillis() - speedLastMs, 80L);
+        return Math.max(0f, speedKph + speedVelPerMs * age);
+    }
+
+    /** Boost (psi) extrapolated from MAP rate of change. */
+    public float boostPsiEst() {
+        if (Float.isNaN(mapKpa) || Float.isNaN(baroKpa)) return Float.NaN;
+        long age = Math.min(System.currentTimeMillis() - mapLastMs, 80L);
+        float mapEst = mapKpa + mapVelPerMs * age;
+        return (mapEst - baroKpa) / 6.89476f;
+    }
+
     // ── Derived (computed in getter, not polled) ─────────────────
     public float speedMph()     { return speedKph * 0.621371f; }
+    public float speedMphEst()  { return speedKphEst() * 0.621371f; }
     public float coolantF()     { return coolantC  * 9f/5f + 32f; }
     public float oilTempF()     { return oilTempC  * 9f/5f + 32f; }
     public float catTempF()     { return catTempC  * 9f/5f + 32f; }

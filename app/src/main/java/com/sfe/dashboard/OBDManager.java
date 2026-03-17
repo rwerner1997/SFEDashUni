@@ -666,8 +666,15 @@ public class OBDManager {
         float raw = (a * 256f + b) / 4f;
         if (raw > 8000f) return;  // reject garbled ELM frames (FA20DIT redline ~7000 RPM)
         float prev = data.rpm;
+        long nowMs = System.currentTimeMillis();
         // EMA α=0.25: ~0.2s time constant at 20Hz — smooths noise without perceptible lag
-        data.rpm = Float.isNaN(prev) ? raw : prev * 0.75f + raw * 0.25f;
+        float next = Float.isNaN(prev) ? raw : prev * 0.75f + raw * 0.25f;
+        if (!Float.isNaN(prev) && data.rpmLastMs > 0) {
+            float dtMs = nowMs - data.rpmLastMs;
+            if (dtMs > 0) data.rpmVelPerMs = (next - prev) / dtMs;
+        } else { data.rpmVelPerMs = 0f; }
+        data.rpm = next;
+        data.rpmLastMs = nowMs;
     }
 
     private void parseSpeed(String r) {
@@ -675,8 +682,15 @@ public class OBDManager {
         int a = byteAt(r, 2); if (a < 0) return;
         float raw = a;
         float prev = data.speedKph;
+        long nowMs = System.currentTimeMillis();
         // EMA α=0.4: ~0.12s time constant at 20Hz — smooths 1-kph quantization steps
-        data.speedKph = Float.isNaN(prev) ? raw : prev * 0.6f + raw * 0.4f;
+        float next = Float.isNaN(prev) ? raw : prev * 0.6f + raw * 0.4f;
+        if (!Float.isNaN(prev) && data.speedLastMs > 0) {
+            float dtMs = nowMs - data.speedLastMs;
+            if (dtMs > 0) data.speedVelPerMs = (next - prev) / dtMs;
+        } else { data.speedVelPerMs = 0f; }
+        data.speedKph = next;
+        data.speedLastMs = nowMs;
     }
 
     private void parsePedal(String r) {
@@ -775,8 +789,15 @@ public class OBDManager {
         int a = byteAt(r, 2); if (a < 0) return;
         float raw = a;  // kPa absolute
         float prev = data.mapKpa;
+        long nowMs = System.currentTimeMillis();
         // EMA α=0.3: ~0.17s time constant at 20Hz — smooth boost without hiding spool/blowoff
-        data.mapKpa = Float.isNaN(prev) ? raw : prev * 0.7f + raw * 0.3f;
+        float next = Float.isNaN(prev) ? raw : prev * 0.7f + raw * 0.3f;
+        if (!Float.isNaN(prev) && data.mapLastMs > 0) {
+            float dtMs = nowMs - data.mapLastMs;
+            if (dtMs > 0) data.mapVelPerMs = (next - prev) / dtMs;
+        } else { data.mapVelPerMs = 0f; }
+        data.mapKpa = next;
+        data.mapLastMs = nowMs;
     }
 
     private void parseBaro(String r) {
