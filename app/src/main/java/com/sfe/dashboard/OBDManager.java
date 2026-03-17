@@ -281,13 +281,13 @@ public class OBDManager {
             long t0 = System.currentTimeMillis();
 
             // ════════════════════════════════════════════════════
-            // TIER 1 — FAST: every loop (~20Hz target) — RPM, Speed, MAP.
-            // All Mode 01, same header — no header switch cost.
+            // TIER 1 — FAST: every loop (~20Hz target) — RPM, MAP only.
+            // Speed moved to Tier 2: 7Hz is plenty for a speedo and saves one
+            // round trip per loop on the clone adapter (~33% faster hot path).
             // MAP here drives boostPsi() (MAP-baro) at full refresh rate.
             // ════════════════════════════════════════════════════
             setHeader("7DF", "7E8");
             parseRPM(sendCmd("010C"));
-            parseSpeed(sendCmd("010D"));
             parseMAP(sendCmd("010B"));
 
             // ════════════════════════════════════════════════════
@@ -298,6 +298,7 @@ public class OBDManager {
             if (loopCount % 3 == 0) {
                 // Mode 01 — engine vitals (MAP moved to Tier 1 for smooth boost display)
                 setHeader("7DF", "7E8");
+                parseSpeed(sendCmd("010D"));
                 parseTiming(sendCmd("010E"));
                 parseMAF(sendCmd("0110"));
                 parsePedal(sendCmd("0145"));
@@ -333,15 +334,14 @@ public class OBDManager {
                 parseFuelLevel(sendCmd("012F"));   // fuel tank level (Mode 01)
                 parseBattery(sendCmd("ATRV"));
 
-                // Force ATSH + ATCRA re-send: cheap ELM clones may silently reset ATCRA
-                // when ATSH changes (e.g. 7DF→7E0), leaving the filter stale and causing
-                // the ECU response to be missed or mixed with bus noise from other ECUs.
-                setHeaderForce("7E0", "7E8");
-                parseTargetMAP(sendM22("223050", CMD_TIMEOUT_SLOW));
                 // 22309A (batt temp) dropped — field never displayed or alerted on.
+                // 223050 (target MAP) dropped — returns 7F2231 (requestOutOfRange) on every
+                // poll; confirmed across full session log sfe_20260317_081442.csv (538/538 ERR).
                 // CVT temp: TCU 2210D2, formula byte-50 °C.
                 // Confirmed across 3 reference points (pid_scan_20260315, _0316_083419, _084742).
                 // 2210C9 swings wildly with braking/acceleration — not a temp sensor.
+                // Force ATSH + ATCRA re-send for TCU: cheap ELM clones may silently reset ATCRA
+                // when ATSH changes (e.g. 7DF→7E1), leaving the filter stale.
                 setHeaderForce("7E1", "7E9");
                 parseCVTTemp(sendM22("2210D2", CMD_TIMEOUT_SLOW));
                 setHeaderForce("7E0", "7E8");
