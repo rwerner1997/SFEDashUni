@@ -80,6 +80,8 @@ Sources: pid_scan_20260315_160213.csv (mid-drive), pid_scan_20260316_083419.csv 
 | 221139 | 060F | 06C5 | 0603 | word; possible shaft speed |
 | 22113A | 05DC | 076A | 06C6 | word; possible shaft speed |
 | 221152 | 0EC7 | 0EC9 | 0EC9 | word = ~3785; nearly constant — note 22300E/2230D0 did NOT respond |
+| **221093** | 00 | 04 | 04 | **SHIFT SELECTOR CANDIDATE** — 0x00 mid-drive, 0x04 both parked scans. Bit 2 may = Park. Currently trialled in OBDManager alongside 2210D2. Encoding TBD from gear-cycle log. |
+| **221095** | 00 | 20 | 20 | **SHIFT SELECTOR CANDIDATE** — 0x00 mid-drive, 0x20 both parked scans. Bit 5 may = Park. Currently trialled alongside 221093. |
 
 ## Known Wrong PIDs (do not use)
 - `2210AF` for knock correction — it's engine oil temperature.
@@ -92,6 +94,7 @@ Sources: pid_scan_20260315_160213.csv (mid-drive), pid_scan_20260316_083419.csv 
 - `2210C9` for CVT temp from TCU — **NOT a temp sensor**. Live signal but swings wildly with braking/acceleration — likely pressure, clutch duty, or similar. Do not use for CVT temp.
 - `223018` for knock correction — returns 7F2231 (requestOutOfRange) on every poll. **Poll has been REMOVED from OBDManager.** knockCorr stays NaN permanently.
 - `22101F` for IAT — returns 7F2231 on every poll. Not supported.
+- `221154` for shift selector — returns 7F2231 (requestOutOfRange) on **100% of polls** across full 10-minute drive log `sfe_20260318_131140.csv` (120/120 ERR). **Poll has been REMOVED.** Not supported on this TCU.
 
 ## Pages (DashView.java — `PAGES[]` array, index 0–6)
 ```

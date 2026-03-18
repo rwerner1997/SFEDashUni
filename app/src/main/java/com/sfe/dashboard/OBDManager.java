@@ -346,10 +346,13 @@ public class OBDManager {
                 // when ATSH changes (e.g. 7DF→7E1), leaving the filter stale.
                 setHeaderForce("7E1", "7E9");
                 parseCVTTemp(sendM22("2210D2", CMD_TIMEOUT_SLOW));
-                // 221154 — shift selector inhibitor (UNVERIFIED, trial poll).
-                // Raw byte is logged; formula and encoding TBD from log review.
-                // Common Subaru CVT encoding: 0x40=P, 0x20=R, 0x10=N, 0x08=D, 0x04=S, 0x01=L
-                parseShiftSelector(sendM22("221154", CMD_TIMEOUT_SLOW));
+                // Shift selector trial PIDs — raw bytes logged for gear-position decoding.
+                // 221093: scan data shows 0x00 mid-drive / 0x04 parked (bit 2 = Park?).
+                // 221095: scan data shows 0x00 mid-drive / 0x20 parked (bit 5 = Park?).
+                // 221154: confirmed 7F2231 (requestOutOfRange) on 100% of polls — REMOVED.
+                // Need a gear-cycle log (P→R→N→D→P) to confirm encoding.
+                parseShiftSelector(sendM22("221093", CMD_TIMEOUT_SLOW));
+                parseShiftSelector2(sendM22("221095", CMD_TIMEOUT_SLOW));
                 setHeaderForce("7E0", "7E8");
             }
 
@@ -979,12 +982,19 @@ public class OBDManager {
     }
 
     private void parseShiftSelector(String r) {
-        // 221154 on TCU (7E1) — shift inhibitor / selector position (UNVERIFIED).
-        // Store raw byte in shiftRaw for log-based formula derivation.
-        // If it returns 7F2231 (requestOutOfRange) on every poll, remove it.
-        if (isError(r)) { data.shiftRaw = Float.NaN; return; }
-        int a = m22byte(r, 0); if (a < 0) { data.shiftRaw = Float.NaN; return; }
-        data.shiftRaw = a;
+        // 221093 on TCU (7E1) — trial selector PID.
+        // Scan data: 0x00 mid-drive, 0x04 parked (bit 2 may indicate Park).
+        if (isError(r)) { data.shiftRaw93 = Float.NaN; return; }
+        int a = m22byte(r, 0); if (a < 0) { data.shiftRaw93 = Float.NaN; return; }
+        data.shiftRaw93 = a;
+    }
+
+    private void parseShiftSelector2(String r) {
+        // 221095 on TCU (7E1) — trial selector PID.
+        // Scan data: 0x00 mid-drive, 0x20 parked (bit 5 may indicate Park).
+        if (isError(r)) { data.shiftRaw95 = Float.NaN; return; }
+        int a = m22byte(r, 0); if (a < 0) { data.shiftRaw95 = Float.NaN; return; }
+        data.shiftRaw95 = a;
     }
 
     // ── Mode 22 ECU — ScanGauge extended parsers ──────────────────

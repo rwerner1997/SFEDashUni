@@ -404,7 +404,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             drawStatusBar(c, t);
             drawHero(c, t, pg);
             if (!"gforce".equals(pg.type)) drawSideStrips(c, t);
-            drawSparkline(c, t, pg);
+            drawGearStrip(c, t);
             hline(c, t, 215);
             drawPageHeader(c, t, pg);
             drawCards(c, t, pg);
@@ -857,6 +857,42 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             if (i == 0) sparkPath.moveTo(sx + i, y); else sparkPath.lineTo(sx + i, y);
         }
         c.drawPath(sparkPath, strokeP);
+    }
+
+    // ── GEAR STRIP ────────────────────────────────────────────────
+
+    /**
+     * 12px gear-position strip at y=202–214, replacing the blank sparkline.
+     * Shows "P" when Park is detected via TCU PID 221095 bit 5 (confirmed from PID scan).
+     * Shows "---" for all other positions until a gear-cycle log confirms R/N/D/S encoding.
+     */
+    private void drawGearStrip(Canvas c, Theme t) {
+        final float SY = 202f, SH = 12f;
+        fillRect(c, 0, SY, LW, SH, t.dim, 1f);
+
+        DashData d = DashData.get();
+        String gear = decodeGear(d);
+        boolean known = !"---".equals(gear);
+
+        // Left label
+        sf(7, false, false);
+        textP.setTextAlign(Paint.Align.LEFT);
+        textP.setColor(ac(t.label, 0.45f));
+        c.drawText("GEAR", 6f, SY + SH - 2f, textP);
+
+        // Gear value — accent colour when known, muted when not
+        sf(9, true, false);
+        textP.setTextAlign(Paint.Align.CENTER);
+        textP.setColor(known ? t.accent : ac(t.label, 0.35f));
+        c.drawText(gear, LW / 2f, SY + SH - 2f, textP);
+    }
+
+    /** Decode current gear from shift selector PIDs.
+     *  Only Park is confirmed (221095 bit 5 = 0x20); all other positions return "---". */
+    private String decodeGear(DashData d) {
+        float r95 = d.shiftRaw95;
+        if (!Float.isNaN(r95) && ((int) r95 & 0x20) != 0) return "P";
+        return "---";
     }
 
     // ── PAGE HEADER ───────────────────────────────────────────────
