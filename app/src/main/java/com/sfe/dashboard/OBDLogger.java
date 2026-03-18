@@ -43,7 +43,9 @@ class OBDLogger {
     private static final int    MAX_LINES = 100_000;
 
     private BufferedWriter       writer;
-    private ParcelFileDescriptor pfd;      // held open for MediaStore path (API 29+)
+    private ParcelFileDescriptor pfd;         // held open for MediaStore path (API 29+)
+    private Uri                  mediaUri;    // kept for discard() on API 29+
+    private File                 legacyFile;  // kept for discard() on API < 29
     private long                 startMs;
     private int                  lineCount;
 
@@ -79,6 +81,32 @@ class OBDLogger {
         Log.i(TAG, "OBD log closed (" + lineCount + " lines)");
     }
 
+    /** Close and permanently delete the current log file.
+     *  Called when the user chooses to discard the session log. */
+    void discard(Context ctx) {
+        // Close writer first so the file descriptor is released.
+        try { if (writer != null) writer.close(); } catch (IOException ignored) {}
+        writer = null;
+        if (pfd != null) {
+            try { pfd.close(); } catch (IOException ignored) {}
+            pfd = null;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (mediaUri != null) {
+                int rows = ctx.getContentResolver().delete(mediaUri, null, null);
+                Log.i(TAG, "OBD log discarded via MediaStore (rows=" + rows + ")");
+                mediaUri = null;
+            }
+        } else {
+            if (legacyFile != null) {
+                boolean deleted = legacyFile.delete();
+                Log.i(TAG, "OBD log discarded via File (deleted=" + deleted + ")");
+                legacyFile = null;
+            }
+        }
+        lineCount = 0;
+    }
+
     // ── Open helpers ─────────────────────────────────────────────
 
     /** API 29+: insert into MediaStore so the file appears in Documents/SFEDash. */
@@ -90,6 +118,7 @@ class OBDLogger {
         Uri uri = ctx.getContentResolver()
                      .insert(MediaStore.Files.getContentUri("external"), cv);
         if (uri == null) throw new IOException("MediaStore insert returned null");
+        mediaUri = uri;  // retain for discard()
         pfd = ctx.getContentResolver().openFileDescriptor(uri, "w");
         if (pfd == null) throw new IOException("openFileDescriptor returned null");
         writer = new BufferedWriter(
@@ -106,6 +135,7 @@ class OBDLogger {
         //noinspection ResultOfMethodCallIgnored
         dir.mkdirs();
         File f = new File(dir, "sfe_" + ts + ".csv");
+        legacyFile = f;  // retain for discard()
         writer = new BufferedWriter(new FileWriter(f), 8192);
         Log.i(TAG, "OBD log → " + f.getAbsolutePath());
     }

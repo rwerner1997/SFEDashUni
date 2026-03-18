@@ -75,6 +75,8 @@ public class OBDManager {
     public void requestPIDScan()      { scanRequested.set(true); }
     public void cancelPIDScan()       { data.scanRunning = false; }
     public boolean isPIDScanRunning() { return data.scanRunning; }
+    /** Delete the current session log file.  Called when the user chooses to discard it. */
+    public void discardCurrentLog(Context ctx) { logger.discard(ctx); }
 
     // Poll-rate tracking
     private int  pollCount  = 0;
@@ -344,6 +346,10 @@ public class OBDManager {
                 // when ATSH changes (e.g. 7DF→7E1), leaving the filter stale.
                 setHeaderForce("7E1", "7E9");
                 parseCVTTemp(sendM22("2210D2", CMD_TIMEOUT_SLOW));
+                // 221154 — shift selector inhibitor (UNVERIFIED, trial poll).
+                // Raw byte is logged; formula and encoding TBD from log review.
+                // Common Subaru CVT encoding: 0x40=P, 0x20=R, 0x10=N, 0x08=D, 0x04=S, 0x01=L
+                parseShiftSelector(sendM22("221154", CMD_TIMEOUT_SLOW));
                 setHeaderForce("7E0", "7E8");
             }
 
@@ -358,6 +364,7 @@ public class OBDManager {
             }
 
             data.updatePeaks();
+            data.updateAverages();
             data.recordKnockEvent();
 
             loopCount++;
@@ -969,6 +976,15 @@ public class OBDManager {
         int a = m22byte(r, 0); if (a < 0) return;
         float v = a - 50f;
         if (v > -30f && v < 200f) data.cvtTempC = v;
+    }
+
+    private void parseShiftSelector(String r) {
+        // 221154 on TCU (7E1) — shift inhibitor / selector position (UNVERIFIED).
+        // Store raw byte in shiftRaw for log-based formula derivation.
+        // If it returns 7F2231 (requestOutOfRange) on every poll, remove it.
+        if (isError(r)) { data.shiftRaw = Float.NaN; return; }
+        int a = m22byte(r, 0); if (a < 0) { data.shiftRaw = Float.NaN; return; }
+        data.shiftRaw = a;
     }
 
     // ── Mode 22 ECU — ScanGauge extended parsers ──────────────────

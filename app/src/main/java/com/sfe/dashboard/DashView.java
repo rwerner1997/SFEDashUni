@@ -137,6 +137,12 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         new Theme("STEALTH",0xFF07090C,0xFF101520,0xFF86A8BC,0xFF182030,0xFF304858,
             0xFF6A8EA0,0xFF4A6878,0xFF0C1018,0xFF56A878,0xFFB89830,0xFFB86030,
             0xFFC03030,0xFF3868B0,0xFF56A0BC,0xFF7858A0,0xFFD4E2EC,false),
+        // SOLAR: maximum brightness + contrast for direct sunlight on TFT.
+        // Deep black bg + pure white labels + electric yellow accent.
+        // No scanlines — they reduce luminance and hurt sunlight legibility.
+        new Theme("SOLAR",  0xFF040608,0xFF0C1020,0xFFFFE000,0xFF2E2800,0xFF524000,
+            0xFFFFFFFF,0xFFCCBB50,0xFF080A10,0xFF00FF80,0xFFFFE000,0xFFFF8C00,
+            0xFFFF2020,0xFF00AAFF,0xFF00FFD0,0xFFFF40FF,0xFFFFFFFF,false),
     };
 
     // ── Page / PID definitions ────────────────────────────────────
@@ -208,7 +214,18 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
                 pid("STFT","%",-10,10,1,        fl(-10,-5,-1,1),fl(-5,-1,1,9e9f),cs("red","orange","green","yellow")),
                 pid("FINE KNOCK","°",-6,0,2,    fl(-6,-3,-1.5f,-0.5f),fl(-3,-1.5f,-0.5f,9e9f),cs("red","orange","yellow","green")),
                 pid("DAM RATIO","",0f,1f,2,      fl(0f,0.7f,0.9f),fl(0.7f,0.9f,9e9f),cs("red","orange","green"))),
-            // ── Page 7: SESSION (last) ──────────────────────────────
+            // ── Page 7: AVERAGES ────────────────────────────────────
+            new PageDef("AVERAGES","RUNNING TRIP AVERAGES","averages",-1,
+                pid("AVG RPM","RPM",0,7000,0,    fl(0),fl(9e9f),cs("green")),
+                pid("AVG SPEED","MPH",0,100,0,   fl(0),fl(9e9f),cs("blue")),
+                pid("AVG BOOST","PSI",-12,22,1,  fl(0),fl(9e9f),cs("cyan")),
+                pid("AVG LOAD","%",0,100,1,      fl(0),fl(9e9f),cs("orange")),
+                pid("AVG COOLANT","°F",32,266,0, fl(0),fl(9e9f),cs("yellow")),
+                pid("AVG THROTTLE","%",0,100,1,  fl(0),fl(9e9f),cs("green")),
+                pid("AVG STFT","%",-10,10,1,     fl(0),fl(9e9f),cs("yellow")),
+                pid("AVG MAF","G/S",0,200,1,     fl(0),fl(9e9f),cs("purple")),
+                pid("AVG HP","HP",0,250,0,       fl(0),fl(9e9f),cs("accent"))),
+            // ── Page 8: SESSION (last) ──────────────────────────────
             new PageDef("SESSION","PEAK VALUES","session",-1,
                 pid("BOOST","PSI",-12,22,2,  fl(0),fl(9e9f),cs("cyan")),
                 pid("RPM","RPM",0,7000,0,    fl(0),fl(9e9f),cs("green")),
@@ -276,6 +293,8 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
     public void nextPage()       { pageIdx = (pageIdx + 1) % PAGES.length; DashData.get().activePage = pageIdx; }
     public void prevPage()       { pageIdx = (pageIdx - 1 + PAGES.length) % PAGES.length; DashData.get().activePage = pageIdx; }
     public void nextTheme()      { themeIdx = (themeIdx + 1) % THEMES.length; }
+    public boolean isAveragesPage() { return "averages".equals(PAGES[pageIdx].type); }
+    public void resetAverages()  { DashData.get().resetAverages(); }
     public void prevTheme()      { themeIdx = (themeIdx - 1 + THEMES.length) % THEMES.length; }
     public void toggleDriveMode(){ driveOn = !driveOn; }
     public void toggleAutoScroll(){ autoScr = !autoScr; }
@@ -379,6 +398,8 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             drawCylinderPage(c, t);
         } else if ("session".equals(pg.type)) {
             drawSessionPage(c, t);
+        } else if ("averages".equals(pg.type)) {
+            drawAveragePage(c, t);
         } else {
             drawStatusBar(c, t);
             drawHero(c, t, pg);
@@ -1281,6 +1302,66 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             sf(18,true,true); textP.setColor(scols2[i]); c.drawText(svals2[i],sx3+6,458,textP);
             if(i<2) fillRect(c,sx3+(LW/3)-1,398,1,58, t.border, 0.3f);
         }
+    }
+
+    // ── AVERAGES PAGE ─────────────────────────────────────────────
+
+    private void drawAveragePage(Canvas c, Theme t) {
+        fillRect(c, 0,27,LW,22, t.dim, 1f);
+        fillRect(c, 0,27,3,22, t.accent, 1f);
+        sf(10,true,true); textP.setColor(t.white); textP.setAlpha(255); textP.setTextAlign(Paint.Align.CENTER);
+        c.drawText("AVERAGES", LW/2f, 42, textP);
+        sf(7,false,false); textP.setColor(t.accent); c.drawText("RUNNING TRIP AVERAGES", LW/2f, 52, textP);
+        hline(c,t,53);
+
+        DashData d = DashData.get();
+        float[] avVals = {d.avgRpm, d.avgSpeedMph, d.avgBoostPsi, d.avgLoadPct,
+                          d.avgCoolantF, d.avgThrottlePct, d.avgStftPct, d.avgMafGs, d.avgEstHp};
+        String[] avLbls = {"AVG RPM","AVG SPEED","AVG BOOST","AVG LOAD",
+                           "AVG COOLANT","AVG THROTTLE","AVG STFT","AVG MAF","AVG HP"};
+        String[] avUnits= {"RPM","MPH","PSI","%","°F","%","%","G/S","HP"};
+        int[] avColors  = {t.green,t.blue,t.cyan,t.orange,t.yellow,t.green,t.yellow,t.purple,t.accent};
+        int[] avDecs    = {0,0,1,1,0,1,1,1,0};
+        // Also show current live value as a small secondary line
+        float[] liveVals= {d.rpmEst(), d.speedMphEst(), d.boostPsiEst(), d.loadPct,
+                           d.coolantF(), d.throttlePct, d.stftPct, d.mafGs, d.estHp()};
+
+        int cols=3, rows=3, startY=52, tW=LW/cols, tH=(LH-startY-54)/rows;
+        for (int i=0; i<9; i++) {
+            int col2=i%cols, row2=i/cols;
+            float cx=col2*tW, cy=startY+row2*tH;
+            int col=avColors[i];
+            fillRect(c, cx+2,cy+2,tW-4,tH-4, t.panel, 1f);
+            fillRect(c, cx+2,cy+2,tW-4,3, col, 1f);
+            strokeRect(c, cx+2,cy+2,tW-4,tH-4, t.border, 0.4f, 1f);
+            cbrk(c, cx+2,cy+2,tW-4,tH-4, ac(col,0.22f), 4);
+            // Label
+            sf(7,true,false); textP.setColor(ac(t.white,200)); textP.setTextAlign(Paint.Align.LEFT);
+            c.drawText(avLbls[i], cx+6, cy+20, textP);
+            // Average value (large)
+            boolean hasAvg = !Float.isNaN(avVals[i]);
+            String av = hasAvg ? fmtV(avVals[i], avDecs[i]) : "---";
+            float vFs = av.length()<=3 ? 30 : av.length()<=5 ? 24 : 18;
+            sf(vFs,true,true); textP.setTextAlign(Paint.Align.CENTER);
+            textShadow(c, av, cx+tW/2f, cy+tH*0.62f, t.bg, hasAvg?t.white:ac(t.label,100));
+            // Unit
+            sf(8,false,false); textP.setColor(ac(col,200)); textP.setTextAlign(Paint.Align.RIGHT);
+            c.drawText(avUnits[i], cx+tW-6, cy+tH-16, textP);
+            // Live "NOW" value (small, dim)
+            boolean hasLive = !Float.isNaN(liveVals[i]);
+            if (hasLive) {
+                sf(7,false,false); textP.setColor(ac(t.label,140)); textP.setTextAlign(Paint.Align.LEFT);
+                c.drawText(">" + fmtV(liveVals[i], avDecs[i]), cx+6, cy+tH-6, textP);
+            }
+        }
+        // Bottom bar: sample count + reset hint
+        int sY=startY+rows*tH+2;
+        hline(c,t,sY); fillRect(c, 0,sY,LW,22, t.dim, 1f);
+        sf(7,false,false); textP.setColor(ac(t.label,200)); textP.setTextAlign(Paint.Align.LEFT);
+        c.drawText("SAMPLES: " + d.avgSampleCount, 10, sY+14, textP);
+        sf(7,false,false); textP.setColor(ac(t.accent,180)); textP.setTextAlign(Paint.Align.RIGHT);
+        c.drawText("HOLD LEFT TO RESET", LW-10, sY+14, textP);
+        hline(c,t,sY+22);
     }
 
     // ── SESSION PAGE ──────────────────────────────────────────────

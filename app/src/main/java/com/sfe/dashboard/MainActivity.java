@@ -2,6 +2,7 @@ package com.sfe.dashboard;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.bluetooth.BluetoothAdapter;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -37,12 +38,78 @@ public class MainActivity extends Activity {
     private static final long DOUBLE_TAP_MS = 350;
     private static final long LONG_PRESS_MS = 600;
 
+    // ── Park-detection watchdog ───────────────────────────────────
+    // Fires the "save log?" dialog after the car has been stationary at idle
+    // for PARK_TRIGGER_MS, but only if it was previously moving (so starting
+    // the app while already in Park never triggers the prompt).
+    private static final float MOVING_MPH_THRESHOLD = 3f;   // mph — below this counts as stopped
+    private static final float IDLE_RPM_THRESHOLD   = 1100f; // above this = actively driving, not parked
+    private static final long  PARK_TRIGGER_MS      = 45_000L; // must be stationary for 45 s
+    private static final long  PARK_CHECK_INTERVAL  = 2_000L;  // check every 2 s
+    private boolean hasBeenMoving   = false;  // true once speed > threshold this session
+    private long    stoppedSinceMs  = 0;      // when the current stopped period began
+    private boolean parkPromptShown = false;  // show at most once per session
+
+    private final Runnable parkWatchdog = new Runnable() {
+        @Override public void run() {
+            checkParkCondition();
+            dashView.postDelayed(this, PARK_CHECK_INTERVAL);
+        }
+    };
+
+    private void checkParkCondition() {
+        if (parkPromptShown) return;
+        DashData d = DashData.get();
+        if (!d.connected) {
+            // Reset movement tracking when disconnected so next connection starts fresh.
+            hasBeenMoving  = false;
+            stoppedSinceMs = 0;
+            return;
+        }
+        float spd = d.speedMphEst();
+        float rpm = d.rpmEst();
+        boolean moving = !Float.isNaN(spd) && spd > MOVING_MPH_THRESHOLD;
+        if (moving) {
+            hasBeenMoving  = true;
+            stoppedSinceMs = 0;
+            return;
+        }
+        // Car not moving — but only proceed if it was previously driven.
+        if (!hasBeenMoving) return;
+        // Require idle RPM so a brief stop at a light (engine still loading) doesn't trigger.
+        boolean idleRpm = Float.isNaN(rpm) || rpm < IDLE_RPM_THRESHOLD;
+        if (!idleRpm) {
+            stoppedSinceMs = 0;  // reset; car is still being driven
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (stoppedSinceMs == 0) { stoppedSinceMs = now; return; }
+        if (now - stoppedSinceMs >= PARK_TRIGGER_MS) {
+            showSaveLogDialog();
+        }
+    }
+
+    private void showSaveLogDialog() {
+        parkPromptShown = true;
+        runOnUiThread(() -> new AlertDialog.Builder(this)
+            .setTitle("Save session log?")
+            .setMessage("The vehicle appears to be parked.\nKeep this OBD session log file?")
+            .setPositiveButton("Keep", (dlg, w) -> { /* already written — nothing to do */ })
+            .setNegativeButton("Discard", (dlg, w) -> {
+                if (obdManager != null) obdManager.discardCurrentLog(MainActivity.this);
+            })
+            .setCancelable(false)
+            .show());
+    }
+
     // ── Simultaneous-button detection (for PID scan trigger) ─────
     private boolean leftDown = false;
 
     // ── Long-press runnables ──────────────────────────────────────
     private final Runnable leftLongRunnable  = () -> {
-        dashView.nextTheme();
+        // On the averages page, long-press resets trip averages instead of cycling theme.
+        if (dashView.isAveragesPage()) dashView.resetAverages();
+        else dashView.nextTheme();
         leftLongFired = true;
     };
     private final Runnable rightLongRunnable = () -> {
@@ -111,6 +178,9 @@ public class MainActivity extends Activity {
         // Start OBD after view is attached
         obdManager = new OBDManager(this, DashData.get());
         dashView.setOBDManager(obdManager);
+
+        // Start park-detection watchdog — fires "save log?" once the car parks after driving.
+        dashView.postDelayed(parkWatchdog, PARK_CHECK_INTERVAL);
 
         // Ensure BT is on
         ensureBluetoothOn();
@@ -279,6 +349,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        dashView.removeCallbacks(parkWatchdog);
         if (obdManager != null) obdManager.stop();
         // Stop the service when the user explicitly closes the app.
         stopService(new Intent(this, DashService.class));

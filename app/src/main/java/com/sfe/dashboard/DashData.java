@@ -79,6 +79,13 @@ public class DashData {
     // ── CVT fluid temp (on ECM 7E0, not TCU) ─────────────────────
     public volatile float cvtTempC      = Float.NaN; // 221021 — CVT fluid temperature (°C)
 
+    // ── CVT shift selector position (TCU 7E1, PID unverified) ────
+    // 221154 is a trial PID — raw byte logged for formula derivation.
+    // Populated once we confirm the byte-to-position mapping from a log.
+    // Values: NaN = not yet received / PID not supported.
+    // Possible encoding (unverified): 0x40=P, 0x20=R, 0x10=N, 0x08=D, 0x04=S, 0x01=L
+    public volatile float shiftRaw      = Float.NaN; // 221154 raw byte — UNVERIFIED
+
     // ── PID Scan state (written by OBDManager poll thread) ───────
     public volatile boolean scanRunning  = false;   // true while scan is active or showing result
     public volatile String  scanPhase    = "";       // e.g. "ECM 10A3" or "DONE — 23 OK"
@@ -184,5 +191,47 @@ public class DashData {
         peakLoadPct  = Float.NaN; peakSpeedMph = Float.NaN; peakCvtTempF   = Float.NaN;
         peakMafGs    = Float.NaN; peakEstHp = Float.NaN; peakCatTempF = Float.NaN;
         knockEventCount = 0;
+    }
+
+    // ── Trip averages (Welford online mean, reset on demand) ─────
+    public volatile float avgRpm        = Float.NaN;
+    public volatile float avgSpeedMph   = Float.NaN;
+    public volatile float avgBoostPsi   = Float.NaN;
+    public volatile float avgLoadPct    = Float.NaN;
+    public volatile float avgCoolantF   = Float.NaN;
+    public volatile float avgThrottlePct= Float.NaN;
+    public volatile float avgStftPct    = Float.NaN;
+    public volatile float avgMafGs      = Float.NaN;
+    public volatile float avgEstHp      = Float.NaN;
+    public volatile int   avgSampleCount= 0;
+
+    /** Update all running trip averages with the current live values.
+     *  Uses Welford's online algorithm; skips NaN fields so the average
+     *  is not diluted before a PID is first received. */
+    public void updateAverages() {
+        avgSampleCount++;
+        int n = avgSampleCount;
+        if (!Float.isNaN(rpm))         avgRpm          = wel(avgRpm,          rpm,          n);
+        if (!Float.isNaN(speedKph))    avgSpeedMph     = wel(avgSpeedMph,     speedMph(),   n);
+        float b = boostPsi();
+        if (!Float.isNaN(b))           avgBoostPsi     = wel(avgBoostPsi,     b,            n);
+        if (!Float.isNaN(loadPct))     avgLoadPct      = wel(avgLoadPct,      loadPct,      n);
+        if (!Float.isNaN(coolantC))    avgCoolantF     = wel(avgCoolantF,     coolantF(),   n);
+        if (!Float.isNaN(throttlePct)) avgThrottlePct  = wel(avgThrottlePct, throttlePct,  n);
+        if (!Float.isNaN(stftPct))     avgStftPct      = wel(avgStftPct,      stftPct,      n);
+        if (!Float.isNaN(mafGs))       avgMafGs        = wel(avgMafGs,        mafGs,        n);
+        float hp = estHp();
+        if (!Float.isNaN(hp))          avgEstHp        = wel(avgEstHp,        hp,           n);
+    }
+
+    private static float wel(float cur, float newV, int n) {
+        return Float.isNaN(cur) ? newV : cur + (newV - cur) / n;
+    }
+
+    public void resetAverages() {
+        avgRpm = Float.NaN; avgSpeedMph = Float.NaN; avgBoostPsi = Float.NaN;
+        avgLoadPct = Float.NaN; avgCoolantF = Float.NaN; avgThrottlePct = Float.NaN;
+        avgStftPct = Float.NaN; avgMafGs = Float.NaN; avgEstHp = Float.NaN;
+        avgSampleCount = 0;
     }
 }
