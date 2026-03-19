@@ -13,6 +13,8 @@
          Android 10+ uses MediaStore and needs no permission for this. -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
+    <!-- Internet access for Claude AI PID analysis -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- Keep CPU awake and process alive when minimized -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

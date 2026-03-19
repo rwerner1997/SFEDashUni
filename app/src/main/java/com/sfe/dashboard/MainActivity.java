@@ -8,8 +8,10 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.text.InputType;
 import android.view.*;
 import android.widget.*;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 
@@ -29,8 +31,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class MainActivity extends Activity {
 
-    private DashView   dashView;
-    private OBDManager obdManager;
+    private DashView    dashView;
+    private OBDManager  obdManager;
+    private PidAnalyzer pidAnalyzer;
     private final AtomicBoolean serviceStarted = new AtomicBoolean(false);
 
     // ── Double-tap detection ─────────────────────────────────────
@@ -113,7 +116,11 @@ public class MainActivity extends Activity {
         leftLongFired = true;
     };
     private final Runnable rightLongRunnable = () -> {
-        dashView.toggleDriveMode();
+        if (dashView.isSessionPage()) {
+            triggerPidAnalysis();
+        } else {
+            dashView.toggleDriveMode();
+        }
         rightLongFired = true;
     };
     private boolean leftLongFired  = false;
@@ -176,7 +183,8 @@ public class MainActivity extends Activity {
         setContentView(root);
 
         // Start OBD after view is attached
-        obdManager = new OBDManager(this, DashData.get());
+        obdManager  = new OBDManager(this, DashData.get());
+        pidAnalyzer = new PidAnalyzer(this);
         dashView.setOBDManager(obdManager);
 
         // Start park-detection watchdog — fires "save log?" once the car parks after driving.
@@ -242,14 +250,17 @@ public class MainActivity extends Activity {
     private boolean onRightTouch(MotionEvent ev) {
         switch (ev.getAction()) {
             case MotionEvent.ACTION_DOWN:
-                // Both buttons held simultaneously → toggle PID scan
+                // Both buttons held simultaneously → toggle PID scan (or cancel discovery)
                 if (leftDown) {
                     dashView.removeCallbacks(leftLongRunnable);
                     leftLongFired = true;  // suppress left-button action on release
                     if (obdManager != null) {
-                        if (obdManager.isPIDScanRunning()) {
+                        if (obdManager.isDiscoveryRunning()) {
+                            obdManager.cancelDiscoveryScan();
+                        } else if (obdManager.isPIDScanRunning()) {
                             obdManager.cancelPIDScan();
                         } else if (DashData.get().connected) {
+                            // Shift + right → discovery scan; plain right scan with button order
                             obdManager.requestPIDScan();
                         }
                     }
@@ -274,6 +285,64 @@ public class MainActivity extends Activity {
                 return true;
         }
         return false;
+    }
+
+    // ── AI PID analysis ───────────────────────────────────────────
+
+    private void triggerPidAnalysis() {
+        if (pidAnalyzer == null) return;
+        if (pidAnalyzer.isRunning()) { pidAnalyzer.cancel(); return; }  // toggle off if running
+
+        if (!pidAnalyzer.hasApiKey()) {
+            showApiKeyDialog();
+            return;
+        }
+
+        VehicleProfile profile = obdManager != null ? obdManager.getProfile() : null;
+        if (profile == null) {
+            Toast.makeText(this, "No vehicle profile — connect first", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        List<String> ecmUnknown = profile.unknownPidIds("ECM");
+        List<String> tcuUnknown = profile.unknownPidIds("TCU");
+        List<String> allUnknown = new java.util.ArrayList<>();
+        allUnknown.addAll(ecmUnknown);
+        allUnknown.addAll(tcuUnknown);
+
+        if (allUnknown.isEmpty()) {
+            Toast.makeText(this, "No unknown PIDs to analyse\nRun discovery scan first",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        // Start analysis and hook result callback to save back to profile
+        pidAnalyzer.startAnalysis(allUnknown, "ECM", results -> runOnUiThread(() -> {
+            if (profile != null) profile.applyAiResults(this, results);
+        }));
+    }
+
+    private void showApiKeyDialog() {
+        EditText input = new EditText(this);
+        input.setHint("sk-ant-api03-...");
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        input.setPadding(32, 16, 32, 16);
+
+        new AlertDialog.Builder(this)
+            .setTitle("Claude API Key")
+            .setMessage("Enter your Anthropic API key to enable AI PID identification.")
+            .setView(input)
+            .setPositiveButton("Save & Analyse", (dlg, w) -> {
+                String key = input.getText().toString().trim();
+                if (key.startsWith("sk-ant-")) {
+                    pidAnalyzer.setApiKey(key);
+                    triggerPidAnalysis();
+                } else {
+                    Toast.makeText(this, "Key must start with sk-ant-", Toast.LENGTH_SHORT).show();
+                }
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
     }
 
     // ── Bluetooth ────────────────────────────────────────────────

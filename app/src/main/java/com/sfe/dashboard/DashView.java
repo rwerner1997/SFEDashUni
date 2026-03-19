@@ -294,6 +294,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
     public void prevPage()       { pageIdx = (pageIdx - 1 + PAGES.length) % PAGES.length; DashData.get().activePage = pageIdx; }
     public void nextTheme()      { themeIdx = (themeIdx + 1) % THEMES.length; }
     public boolean isAveragesPage() { return "averages".equals(PAGES[pageIdx].type); }
+    public boolean isSessionPage()  { return "session".equals(PAGES[pageIdx].type); }
     public void resetAverages()  { DashData.get().resetAverages(); }
     public void prevTheme()      { themeIdx = (themeIdx - 1 + THEMES.length) % THEMES.length; }
     public void toggleDriveMode(){ driveOn = !driveOn; }
@@ -391,7 +392,9 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
 
         if (bootOn) { drawBoot(c, t); return; }
         if (driveOn) { drawDriveMode(c, t); return; }
-        if (DashData.get().scanRunning) { drawScanOverlay(c, t); return; }
+        if (DashData.get().scanRunning)      { drawScanOverlay(c, t); return; }
+        if (DashData.get().analysisRunning)  { drawAnalysisOverlay(c, t); return; }
+        if (DashData.get().discoveryRunning) { drawDiscoveryOverlay(c, t); return; }
 
         PageDef pg = PAGES[pageIdx];
         if ("cylinder".equals(pg.type)) {
@@ -1427,6 +1430,35 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         sf(11,true,true); textP.setColor(d.knockEventCount>0?t.red:t.green); textP.setTextAlign(Paint.Align.RIGHT);
         c.drawText(String.valueOf(d.knockEventCount), LW-10, sY+15, textP);
         hline(c,t,sY+22);
+
+        // ── AI analysis results (if available) ───────────────────
+        @SuppressWarnings({"rawtypes","unchecked"})
+        java.util.List<PidAnalyzer.PidResult> aiResults =
+                (java.util.List<PidAnalyzer.PidResult>) d.lastAnalysisResults;
+        if (aiResults != null && !aiResults.isEmpty()) {
+            int aiY = sY + 24;
+            fillRect(c, 0, aiY - 2, LW, 14, t.panel, 1f);
+            sf(6, true, false); textP.setColor(t.accent); textP.setTextAlign(Paint.Align.CENTER);
+            c.drawText("AI PID IDENTIFICATIONS", LW / 2f, aiY + 9, textP);
+            aiY += 14;
+            hline(c, t, aiY);
+            aiY += 2;
+            for (PidAnalyzer.PidResult r2 : aiResults) {
+                if (aiY > LH - 14) break;
+                float pct = r2.confidence * 100f;
+                int confColor = pct >= 70 ? t.green : pct >= 40 ? t.yellow : t.orange;
+                sf(5, true, false); textP.setColor(t.label); textP.setTextAlign(Paint.Align.LEFT);
+                String pidShort = r2.pid.length() > 4 ? r2.pid.substring(r2.pid.length()-4) : r2.pid;
+                c.drawText(pidShort + "  " + r2.label, 6, aiY + 8, textP);
+                sf(5, false, false); textP.setColor(confColor); textP.setTextAlign(Paint.Align.RIGHT);
+                c.drawText(Math.round(pct) + "%  " + r2.unit, LW - 6, aiY + 8, textP);
+                aiY += 11;
+            }
+        } else if (!d.analysisRunning) {
+            int aiY = sY + 28;
+            sf(5, false, false); textP.setColor(ac(t.dim, 160)); textP.setTextAlign(Paint.Align.CENTER);
+            c.drawText("LONG-PRESS \u25BA ON SESSION PAGE TO ANALYSE UNKNOWN PIDs", LW / 2f, aiY, textP);
+        }
     }
 
     // ── DRIVE MODE ────────────────────────────────────────────────
@@ -1522,6 +1554,76 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
     }
 
     // ── ALERT ────────────────────────────────────────────────────
+
+    private void drawAnalysisOverlay(Canvas c, Theme t) {
+        DashData d = DashData.get();
+        fillRect(c, 0, 0, LW, LH, 0xFF000000, 0.92f);
+        fillRect(c, 0, 0, LW, 3, t.accent, 1f);
+        // Title
+        sf(12, true, true); textP.setColor(t.accent);
+        textP.setTextAlign(Paint.Align.CENTER);
+        c.drawText("PID ANALYSIS", LW / 2f, 140, textP);
+        // Phase / status
+        sf(7, false, false); textP.setColor(t.label);
+        String phase = d.analysisPhase != null ? d.analysisPhase : "";
+        c.drawText(phase, LW / 2f, 175, textP);
+        // Progress bar
+        float barW = LW * 0.76f, barH = 12f;
+        float barX = (LW - barW) / 2f, barY = 196f;
+        fillRect(c, (int) barX, (int) barY, (int) barW, (int) barH, t.panel, 1f);
+        float filled = Math.max(4f, barW * d.analysisProgress);
+        fillRect(c, (int) barX, (int) barY, (int) filled, (int) barH, t.accent, 1f);
+        // Percent
+        sf(9, false, false); textP.setColor(t.white);
+        c.drawText(Math.round(d.analysisProgress * 100) + "%", LW / 2f, 230, textP);
+        // Error or hint
+        String err = d.analysisError;
+        if (err != null) {
+            sf(6, false, false); textP.setColor(t.red);
+            c.drawText(err, LW / 2f, 275, textP);
+        } else if (d.analysisProgress < 1f) {
+            sf(5, false, false); textP.setColor(t.dim);
+            c.drawText("ANALYSING UNKNOWN PIDS WITH CLAUDE AI", LW / 2f, 390, textP);
+        } else {
+            sf(6, false, false); textP.setColor(t.green);
+            String resultLine = d.lastAnalysisResults != null
+                    ? "IDENTIFIED " + d.lastAnalysisResults.size() + " PIDs"
+                    : "DONE";
+            c.drawText(resultLine, LW / 2f, 280, textP);
+            sf(5, false, false); textP.setColor(t.label);
+            c.drawText("RESULTS ON SESSION PAGE", LW / 2f, 300, textP);
+        }
+    }
+
+    private void drawDiscoveryOverlay(Canvas c, Theme t) {
+        DashData d = DashData.get();
+        fillRect(c, 0, 0, LW, LH, 0xFF000000, 0.90f);
+        fillRect(c, 0, 0, LW, 3, t.cyan, 1f);
+        sf(12, true, true); textP.setColor(t.cyan);
+        textP.setTextAlign(Paint.Align.CENTER);
+        c.drawText("DISCOVERY SCAN", LW / 2f, 140, textP);
+        sf(7, false, false); textP.setColor(t.label);
+        String phase = d.discoveryPhase != null ? d.discoveryPhase : "";
+        c.drawText(phase, LW / 2f, 175, textP);
+        float barW = LW * 0.76f, barH = 12f;
+        float barX = (LW - barW) / 2f, barY = 196f;
+        fillRect(c, (int) barX, (int) barY, (int) barW, (int) barH, t.panel, 1f);
+        float filled = Math.max(4f, barW * d.discoveryProgress);
+        fillRect(c, (int) barX, (int) barY, (int) filled, (int) barH, t.cyan, 1f);
+        sf(9, false, false); textP.setColor(t.white);
+        c.drawText(Math.round(d.discoveryProgress * 100) + "%", LW / 2f, 230, textP);
+        if (d.discoveryFound > 0) {
+            sf(7, false, false); textP.setColor(t.green);
+            c.drawText(d.discoveryFound + " DYNAMIC PIDs FOUND", LW / 2f, 260, textP);
+        }
+        if (d.discoveryProgress < 1f) {
+            sf(6, false, false); textP.setColor(t.dim);
+            c.drawText("HOLD BOTH BUTTONS TO CANCEL", LW / 2f, 410, textP);
+        } else {
+            sf(6, false, false); textP.setColor(t.green);
+            c.drawText("PROFILE SAVED", LW / 2f, 290, textP);
+        }
+    }
 
     private void drawScanOverlay(Canvas c, Theme t) {
         DashData d = DashData.get();

@@ -1,5 +1,8 @@
 package com.sfe.dashboard;
 
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
  * Shared data store — written by OBDManager thread, read by DashView render thread.
  * All fields are volatile for safe cross-thread access without locking.
@@ -88,6 +91,29 @@ public class DashData {
     //   S: encoding unknown (not captured in log)
     // Decoded in OBDManager.parseShiftSelector(); null = no valid reading yet.
     public volatile String shiftPos     = null;
+
+    // ── Vehicle identity (written by OBDManager after VIN request) ──
+    public volatile String  vin         = null;   // 17-char VIN or "UNKNOWN_<ts>" fallback
+    public volatile String  vehicleMake = null;   // WMI prefix e.g. "JF1"
+    public volatile boolean isSubaruWRX = false;  // true when VIN matches JF1/JF2 prefix
+
+    // ── Discovery scan state (written by OBDManager) ─────────────
+    public volatile boolean discoveryRunning  = false;
+    public volatile String  discoveryPhase    = "";      // e.g. "ECM 10A3 (pass 2/3)"
+    public volatile float   discoveryProgress = 0f;
+    public volatile int     discoveryFound    = 0;       // # of dynamic (non-static) PIDs found
+
+    // ── Generic PID values (written by OBDManager, read by DashView) ──
+    // Key = registry key e.g. "mode01_0C", "subaru_ecm_10A8"
+    public final ConcurrentHashMap<String, Float> genericValues = new ConcurrentHashMap<>();
+
+    // ── PID Analysis state (written by PidAnalyzer, read by DashView) ─
+    public volatile boolean analysisRunning  = false;
+    public volatile String  analysisPhase    = "";
+    public volatile float   analysisProgress = 0f;
+    public volatile String  analysisError    = null;
+    @SuppressWarnings("rawtypes")
+    public volatile List    lastAnalysisResults = null; // List<PidAnalyzer.PidResult>
 
     // ── PID Scan state (written by OBDManager poll thread) ───────
     public volatile boolean scanRunning  = false;   // true while scan is active or showing result

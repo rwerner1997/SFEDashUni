@@ -26,8 +26,12 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -68,13 +72,21 @@ public class OBDManager {
 
     private final OBDLogger logger = new OBDLogger();
 
+    // ── Vehicle profile ───────────────────────────────────────────
+    private VehicleProfile profile;
+
     // ── PID scanner ───────────────────────────────────────────────
-    private final AtomicBoolean scanRequested = new AtomicBoolean(false);
+    private final AtomicBoolean scanRequested      = new AtomicBoolean(false);
+    private final AtomicBoolean discoveryRequested = new AtomicBoolean(false);
     private ParcelFileDescriptor scanPfd;   // held open for MediaStore scan log (API 29+)
 
-    public void requestPIDScan()      { scanRequested.set(true); }
-    public void cancelPIDScan()       { data.scanRunning = false; }
-    public boolean isPIDScanRunning() { return data.scanRunning; }
+    public void requestPIDScan()         { scanRequested.set(true); }
+    public void cancelPIDScan()          { data.scanRunning = false; }
+    public boolean isPIDScanRunning()    { return data.scanRunning; }
+    public void requestDiscoveryScan()   { discoveryRequested.set(true); }
+    public void cancelDiscoveryScan()    { data.discoveryRunning = false; }
+    public boolean isDiscoveryRunning()  { return data.discoveryRunning; }
+    public VehicleProfile getProfile()   { return profile; }
     /** Delete the current session log file.  Called when the user chooses to discard it. */
     public void discardCurrentLog(Context ctx) { logger.discard(ctx); }
 
@@ -119,6 +131,20 @@ public class OBDManager {
                 connectToDevice(device);
                 data.btStatus = "INIT ELM327";
                 initELM327();
+                data.btStatus = "READING VIN";
+                String vin = requestVIN();
+                if (vin == null) vin = "UNKNOWN_" + System.currentTimeMillis();
+                data.vin         = vin;
+                data.vehicleMake = vin.length() >= 3 ? vin.substring(0, 3) : vin;
+                data.isSubaruWRX = vin.startsWith("JF1") || vin.startsWith("JF2");
+                Log.i(TAG, "VIN=" + vin + " isSubaruWRX=" + data.isSubaruWRX);
+                data.btStatus = "LOADING PROFILE";
+                profile = VehicleProfile.loadOrCreate(ctx, vin);
+                if (profile.mode01Pids.isEmpty()) {
+                    data.btStatus = "CHECKING MODE01";
+                    queryMode01Support(profile);
+                    profile.save(ctx);
+                }
                 data.btStatus = "CONNECTED";
                 data.connected = true;
                 data.obdProtocol = sendCmd("ATDPN").trim();
@@ -279,6 +305,11 @@ public class OBDManager {
                 runPIDScan();
                 continue;   // resume normal polling after scan finishes
             }
+            // Check if a discovery scan was requested — interleaved PID characterization
+            if (discoveryRequested.getAndSet(false)) {
+                runDiscoveryScan();
+                continue;
+            }
 
             long t0 = System.currentTimeMillis();
 
@@ -379,6 +410,246 @@ public class OBDManager {
             hzCount++;
             data.lastPollMs = System.currentTimeMillis() - t0;
         }
+    }
+
+    // ── VIN request ──────────────────────────────────────────────
+
+    /**
+     * Request the vehicle VIN using Mode 09 PID 02 (0902).
+     * Returns a 17-character VIN string, or null if the ECU does not support it.
+     *
+     * ELM327 response format for 0902 varies by protocol; common forms:
+     *   "490201574441 BF3..."  — one or more 490201 lines, each with up to 7 VIN bytes
+     *   "014902014A46..." — multi-line with line numbers
+     * We strip all "4902" prefixes and line-number bytes, then convert pairs to ASCII.
+     */
+    private String requestVIN() {
+        try {
+            setHeader("7DF", "7E8");
+            String r = sendCmdTimeout("0902", 2000);
+            if (isError(r)) return null;
+            // Remove spaces, then strip all "490201", "490202" etc. headers
+            String s = r.replace(" ", "");
+            // Build the raw VIN hex by extracting bytes after each "4902" prefix
+            StringBuilder hex = new StringBuilder();
+            int i = 0;
+            while (i < s.length() - 3) {
+                if (s.startsWith("4902", i)) {
+                    i += 4; // skip service/pid
+                    // Next byte is the line number (01, 02, …) — skip it
+                    if (i + 2 <= s.length()) i += 2;
+                    // Collect up to 7 data bytes (14 hex chars)
+                    int end = Math.min(i + 14, s.length());
+                    hex.append(s, i, end);
+                    i = end;
+                } else {
+                    i++;
+                }
+            }
+            // Convert hex pairs to ASCII
+            StringBuilder vin = new StringBuilder();
+            String h = hex.toString();
+            for (int j = 0; j + 1 < h.length() && vin.length() < 17; j += 2) {
+                try {
+                    int b = Integer.parseInt(h.substring(j, j + 2), 16);
+                    if (b >= 0x20 && b <= 0x7E) vin.append((char) b);
+                } catch (NumberFormatException ignored) {}
+            }
+            String result = vin.toString().trim();
+            Log.i(TAG, "VIN raw response: " + r + " → parsed: '" + result + "'");
+            return (result.length() >= 5) ? result : null;  // need at least partial VIN
+        } catch (IOException e) {
+            Log.w(TAG, "VIN request failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    // ── Mode 01 support bitmask query ────────────────────────────
+
+    /**
+     * Query Mode 01 PID support bitmasks (PIDs 0x00, 0x20, 0x40, …) and populate
+     * the VehicleProfile with the set of supported standard OBD-II PIDs.
+     *
+     * Mode 01 PID 0x00 returns a 4-byte bitmask for PIDs 0x01–0x20.
+     * Bit 31 of each response indicates whether the next range is also supported.
+     */
+    private void queryMode01Support(VehicleProfile p) throws IOException {
+        setHeader("7DF", "7E8");
+        int[] rangePids = {0x00, 0x20, 0x40, 0x60, 0x80, 0xA0, 0xC0};
+        for (int rangePid : rangePids) {
+            String cmd = String.format("01%02X", rangePid);
+            String r = sendCmdTimeout(cmd, 800);
+            r = strip(r);
+            if (isError(r) || r.length() < 10) break;  // range not supported
+            // Parse 4-byte bitmask starting at byte 2 (after "41XX")
+            int mask = 0;
+            for (int b = 0; b < 4; b++) {
+                int bval = byteAt(r, 2 + b);
+                if (bval < 0) break;
+                mask = (mask << 8) | bval;
+            }
+            // Bit 31 = MSB of first byte = PID (rangePid+1), bit 0 = LSB of last byte = PID (rangePid+32)
+            for (int bit = 0; bit < 32; bit++) {
+                if ((mask & (1 << (31 - bit))) != 0) {
+                    int pidCode = rangePid + bit + 1;
+                    PidRegistry.PidEntry entry = PidRegistry.MODE01.get(pidCode);
+                    VehicleProfile.SupportedPid sp = new VehicleProfile.SupportedPid();
+                    sp.pid         = pidCode;
+                    sp.registryKey = entry != null ? entry.key : null;
+                    sp.pollTier    = assignMode01Tier(pidCode);
+                    p.mode01Pids.add(sp);
+                }
+            }
+            // Bit 0 of the last byte indicates whether the next range is supported
+            if ((mask & 1) == 0) break;
+        }
+        Log.i(TAG, "Mode 01 support: " + p.mode01Pids.size() + " PIDs");
+    }
+
+    /** Assign a poll tier to a Mode 01 PID based on update frequency requirements. */
+    private int assignMode01Tier(int pid) {
+        switch (pid) {
+            case 0x0C: case 0x0B: return 1;  // RPM, MAP — fast
+            case 0x0D: case 0x0E: case 0x10: case 0x11: case 0x45:
+            case 0x04: case 0x06: case 0x07: return 2;  // speed, timing, MAF, load — medium
+            default: return 3;  // temps, fuel level, etc. — slow
+        }
+    }
+
+    // ── Discovery scan ────────────────────────────────────────────
+
+    /**
+     * Interleaved Mode 22 discovery scan.  Polls each candidate PID 3 times,
+     * tracking value changes to detect static vs dynamic sensors.  Matches
+     * dynamic PIDs against PidRegistry and saves to VehicleProfile.
+     *
+     * Runs in the poll thread — no separate thread needed.
+     * Cancel: cancelDiscoveryScan() clears data.discoveryRunning.
+     */
+    private void runDiscoveryScan() throws IOException {
+        final int SCAN_TIMEOUT  = 300;
+        final int PASS_COUNT    = 3;    // poll each PID this many times
+        final int PASS_DELAY_MS = 5000; // ms between full passes
+
+        // Same ranges as runPIDScan()
+        String[][] phases = {
+            {"ECM", "7E0", "7E8", "1000", "10FF"},
+            {"ECM", "7E0", "7E8", "1100", "11FF"},
+            {"ECM", "7E0", "7E8", "3000", "30FF"},
+            {"TCU", "7E1", "7E9", "1000", "10FF"},
+            {"TCU", "7E1", "7E9", "1100", "11FF"},
+            {"TCU", "7E1", "7E9", "3000", "30FF"},
+        };
+
+        int totalPids = 0;
+        for (String[] ph : phases)
+            totalPids += Integer.parseInt(ph[4], 16) - Integer.parseInt(ph[3], 16) + 1;
+
+        data.discoveryRunning  = true;
+        data.discoveryPhase    = "STARTING";
+        data.discoveryProgress = 0f;
+        data.discoveryFound    = 0;
+
+        // Track raw values per pid across passes: pid -> list of raw values
+        Map<String, List<Integer>> rawHistory = new HashMap<>();
+
+        int scanned = 0;
+        outer:
+        for (int pass = 0; pass < PASS_COUNT; pass++) {
+            String lastTx = "", lastRx = "";
+            for (String[] ph : phases) {
+                String ecuLabel = ph[0], tx = ph[1], rx = ph[2];
+                int start = Integer.parseInt(ph[3], 16);
+                int end   = Integer.parseInt(ph[4], 16);
+
+                if (!tx.equals(lastTx) || !rx.equals(lastRx)) {
+                    setHeaderForce(tx, rx);
+                    lastTx = tx; lastRx = rx;
+                }
+
+                for (int pid = start; pid <= end; pid++) {
+                    if (!running.get() || !data.discoveryRunning) break outer;
+
+                    String pidHex = String.format("%04X", pid);
+                    String pidCmd = "22" + pidHex;
+                    data.discoveryPhase = ecuLabel + " " + pidHex
+                            + " (pass " + (pass + 1) + "/" + PASS_COUNT + ")";
+                    if (pass == 0)
+                        data.discoveryProgress = scanned++ / (float) totalPids * 0.5f;
+                    else
+                        data.discoveryProgress = 0.5f + (pass * totalPids + scanned)
+                                / (float)(PASS_COUNT * totalPids) * 0.5f;
+
+                    String r;
+                    try {
+                        r = sendCmdTimeout(pidCmd, SCAN_TIMEOUT);
+                    } catch (IOException e) {
+                        data.discoveryRunning = false;
+                        throw e;
+                    }
+
+                    String status = classifyScanResponse(r);
+                    if (!"OK".equals(status)) continue;
+
+                    // Extract first raw byte value
+                    int rawVal = m22byte(r, 0);
+                    if (rawVal < 0) continue;
+
+                    String key = ecuLabel + ":" + pidCmd;
+                    if (!rawHistory.containsKey(key)) rawHistory.put(key, new ArrayList<>());
+                    rawHistory.get(key).add(rawVal);
+                }
+            }
+
+            // Brief pause between passes so values can change with driving conditions
+            if (pass < PASS_COUNT - 1) sleep(PASS_DELAY_MS);
+        }
+
+        // Process results
+        if (profile != null) {
+            int found = 0;
+            for (Map.Entry<String, List<Integer>> entry : rawHistory.entrySet()) {
+                String key     = entry.getKey();  // "ECM:221138"
+                List<Integer> vals = entry.getValue();
+                if (vals.isEmpty()) continue;
+
+                String[] parts  = key.split(":", 2);
+                String ecu      = parts[0];
+                String pidCmd   = parts[1];  // "221138"
+
+                VehicleProfile.DiscoveredPid dp = profile.getOrCreate(ecu, pidCmd);
+                dp.sampleCount  += vals.size();
+                dp.lastRawValue  = vals.get(vals.size() - 1);
+
+                // Check if value changed across passes
+                boolean changed = false;
+                int first = vals.get(0);
+                for (int v : vals) { if (v != first) { changed = true; break; } }
+                if (changed) dp.isStatic = false;
+
+                if (!dp.isStatic) {
+                    // Compute confidence: fraction of samples where value changed vs first
+                    int diffCount = 0;
+                    for (int v : vals) { if (v != vals.get(0)) diffCount++; }
+                    dp.confidence = (float) diffCount / vals.size();
+
+                    // Match against registry
+                    if (dp.registryKey == null && profile.vin != null) {
+                        PidRegistry.PidEntry reg = PidRegistry.lookupMode22(profile.vin, pidCmd);
+                        if (reg != null) { dp.registryKey = reg.key; dp.confidence = 1.0f; }
+                    }
+                    found++;
+                }
+            }
+            data.discoveryFound = found;
+            profile.scanCompleted = true;
+            profile.save(ctx);
+        }
+
+        data.discoveryPhase    = "DONE  " + data.discoveryFound + " DYNAMIC PIDs";
+        data.discoveryProgress = 1f;
+        sleep(5000);
+        data.discoveryRunning = false;
     }
 
     // ── Command send/receive ──────────────────────────────────────
