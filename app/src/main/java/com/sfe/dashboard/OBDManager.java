@@ -988,9 +988,19 @@ public class OBDManager {
         // drive (22 min, CVT 57→84°C) shows 093=0x04/095=0x20 throughout — that is Drive.
         // Arriving parked shows 093=0x00/095=0x00 — that is Park.
         // Primary discriminator: 093 bit2 (0x04) distinguishes D from N/P.
+        //
+        // ELM clone garbling: cheap clones sometimes return a stale 2210D2 (CVT temp)
+        // response when asked for 221093 — e.g. "6210D286" instead of "621093xx".
+        // m22byte() would happily parse the wrong data byte, causing false R/D reads.
+        // Guard: reject any response whose stripped content does not contain the
+        // expected Mode 22 echo ("621093" / "621095"). On rejection keep last known value.
         // If either PID errors we keep the last known value (don't clear).
-        int a93 = isError(r93) ? -1 : m22byte(r93, 0);
-        int a95 = isError(r95) ? -1 : m22byte(r95, 0);
+        String s93 = strip(r93 != null ? r93.toUpperCase() : "");
+        String s95 = strip(r95 != null ? r95.toUpperCase() : "");
+        boolean ok93 = !isError(r93) && s93.contains("621093");
+        boolean ok95 = !isError(r95) && s95.contains("621095");
+        int a93 = ok93 ? m22byte(r93, 0) : -1;
+        int a95 = ok95 ? m22byte(r95, 0) : -1;
         if (a93 < 0 || a95 < 0) return; // keep last known shiftPos
         if ((a93 & 0x02) != 0) {
             data.shiftPos = "R"; // 093 bit1 set → Reverse (unique: bit1+bit2, 095 bit0 set)
