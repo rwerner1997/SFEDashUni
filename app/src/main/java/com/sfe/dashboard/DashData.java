@@ -219,7 +219,7 @@ public class DashData {
         if (!Float.isNaN(b))           avgBoostPsi     = wel(avgBoostPsi,     b,            n);
         if (!Float.isNaN(loadPct))     avgLoadPct      = wel(avgLoadPct,      loadPct,      n);
         if (!Float.isNaN(coolantC))    avgCoolantF     = wel(avgCoolantF,     coolantF(),   n);
-        if (!Float.isNaN(throttlePct)) avgThrottlePct  = wel(avgThrottlePct, throttlePct,  n);
+        if (!Float.isNaN(pedalPct))    avgThrottlePct  = wel(avgThrottlePct, pedalPct,     n);
         if (!Float.isNaN(stftPct))     avgStftPct      = wel(avgStftPct,      stftPct,      n);
         if (!Float.isNaN(mafGs))       avgMafGs        = wel(avgMafGs,        mafGs,        n);
         float hp = estHp();

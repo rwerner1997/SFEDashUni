@@ -1354,7 +1354,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         float[] avVals = {d.avgRpm, d.avgSpeedMph, d.avgBoostPsi, d.avgLoadPct,
                           d.avgCoolantF, d.avgThrottlePct, d.avgStftPct, d.avgMafGs, d.avgEstHp};
         String[] avLbls = {"AVG RPM","AVG SPEED","AVG BOOST","AVG LOAD",
-                           "AVG COOLANT","AVG THROTTLE","AVG STFT","AVG MAF","AVG HP"};
+                           "AVG COOLANT","AVG PEDAL","AVG STFT","AVG MAF","AVG HP"};
         String[] avUnits= {"RPM","MPH","PSI","%","°F","%","%","G/S","HP"};
         int[] avColors  = {t.green,t.blue,t.cyan,t.orange,t.yellow,t.green,t.yellow,t.purple,t.accent};
         int[] avDecs    = {0,0,1,1,0,1,1,1,0};
