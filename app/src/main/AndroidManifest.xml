@@ -27,7 +27,7 @@
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:label="SFE Dash"
+        android:label="@string/app_name"
         android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
 
         <activity
