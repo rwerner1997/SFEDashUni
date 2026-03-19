@@ -404,7 +404,6 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
             drawStatusBar(c, t);
             drawHero(c, t, pg);
             if (!"gforce".equals(pg.type)) drawSideStrips(c, t);
-            drawGearStrip(c, t);
             hline(c, t, 215);
             drawPageHeader(c, t, pg);
             drawCards(c, t, pg);
@@ -799,9 +798,15 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         sf(7,true,false); textP.setColor(t.white); textP.setAlpha(255);
         textP.setTextAlign(Paint.Align.LEFT);
         c.drawText(d.connected ? "OBD" : "NO OBD", 20, 17, textP);
-        // Sparkline box
-        fillRect(c, 48,4,50,18, t.bg, 1f);
-        strokeRect(c, 48,4,50,18, t.border, 0.3f, 1f);
+        // Gear position badge (replaces unused sparkline box)
+        String gBadge = d.shiftPos != null ? d.shiftPos : "--";
+        boolean gKnown = d.shiftPos != null;
+        fillRect(c, 48,3,50,20, t.panel, 1f);
+        fillRect(c, 48,3,2,20, gKnown ? t.accent : ac(t.border, 0.6f), 1f);
+        sf(5,false,false); textP.setColor(ac(t.label,130)); textP.setTextAlign(Paint.Align.LEFT);
+        c.drawText("GEAR", 53, 12, textP);
+        sf(12,true,false); textP.setColor(gKnown ? t.accent : ac(t.label,120)); textP.setTextAlign(Paint.Align.RIGHT);
+        c.drawText(gBadge, 96, 22, textP);
         // Mini engine
         drawEngMini(c, t, 102, 3, 36, 20);
         // Divider
@@ -859,37 +864,17 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         c.drawPath(sparkPath, strokeP);
     }
 
-    // ── GEAR STRIP ────────────────────────────────────────────────
+    // ── GEAR BADGE ────────────────────────────────────────────────
 
-    /**
-     * 12px gear-position strip at y=202–214, replacing the blank sparkline.
-     * Shows "P" when Park is detected via TCU PID 221095 bit 5 (confirmed from PID scan).
-     * Shows "---" for all other positions until a gear-cycle log confirms R/N/D/S encoding.
-     */
-    private void drawGearStrip(Canvas c, Theme t) {
-        final float SY = 202f, SH = 12f;
-        fillRect(c, 0, SY, LW, SH, t.dim, 1f);
-
-        DashData d = DashData.get();
-        String gear = decodeGear(d);
-        boolean known = !"---".equals(gear);
-
-        // Left label
-        sf(7, false, false);
-        textP.setTextAlign(Paint.Align.LEFT);
-        textP.setColor(ac(t.label, 0.45f));
-        c.drawText("GEAR", 6f, SY + SH - 2f, textP);
-
-        // Gear value — accent colour when known, muted when not
-        sf(9, true, false);
-        textP.setTextAlign(Paint.Align.CENTER);
-        textP.setColor(known ? t.accent : ac(t.label, 0.35f));
-        c.drawText(gear, LW / 2f, SY + SH - 2f, textP);
-    }
-
-    /** Return current gear position from confirmed PRNDL decode, or "---" if no valid reading. */
-    private String decodeGear(DashData d) {
-        return d.shiftPos != null ? d.shiftPos : "---";
+    /** Small gear-position badge drawn in the top-right of a page header band (y=27–49).
+     *  Also used in the status bar sparkline-box slot (x=48–98, y=3–23). */
+    private void drawGearBadge(Canvas c, Theme t, DashData d) {
+        String g = d.shiftPos != null ? d.shiftPos : "--";
+        boolean known = d.shiftPos != null;
+        sf(5,false,false); textP.setColor(ac(t.label,130)); textP.setTextAlign(Paint.Align.RIGHT);
+        c.drawText("GEAR", LW-6, 34, textP);
+        sf(11,true,false); textP.setColor(known ? t.accent : ac(t.label,120)); textP.setTextAlign(Paint.Align.RIGHT);
+        c.drawText(g, LW-6, 46, textP);
     }
 
     // ── PAGE HEADER ───────────────────────────────────────────────
@@ -1132,6 +1117,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         hline(c,t,53);
 
         DashData d = DashData.get();
+        drawGearBadge(c, t, d);
         float[] vals = {d.loadPct, d.pedalPct, d.oilTempF(), d.vvtAngleL};
         float CY=210, BORE=36, STROKE=40, PISTH=13, WALL=2, CR=18;
         float crankX=LW/2f, crankY=CY;
@@ -1348,6 +1334,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         hline(c,t,53);
 
         DashData d = DashData.get();
+        drawGearBadge(c, t, d);
         float[] avVals = {d.avgRpm, d.avgSpeedMph, d.avgBoostPsi, d.avgLoadPct,
                           d.avgCoolantF, d.avgThrottlePct, d.avgStftPct, d.avgMafGs, d.avgEstHp};
         String[] avLbls = {"AVG RPM","AVG SPEED","AVG BOOST","AVG LOAD",
@@ -1408,6 +1395,7 @@ public class DashView extends SurfaceView implements SurfaceHolder.Callback {
         hline(c,t,53);
 
         DashData d = DashData.get();
+        drawGearBadge(c, t, d);
         float[] pkVals = {d.peakBoostPsi,d.peakRpm,d.peakTimingDeg,d.peakLoadPct,d.peakSpeedMph,d.peakCvtTempF,d.peakMafGs,d.peakEstHp,d.peakCatTempF};
         String[] pkLbls = {"PEAK BOOST","PEAK RPM","PEAK TIMING","PEAK LOAD","PEAK SPEED","PEAK CVT","PEAK MAF","PEAK HP","PEAK CAT"};
         String[] pkUnits= {"PSI","RPM","°","%","MPH","°F","G/S","HP","°F"};

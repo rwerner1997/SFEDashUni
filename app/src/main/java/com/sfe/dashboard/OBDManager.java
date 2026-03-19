@@ -981,22 +981,25 @@ public class OBDManager {
     }
 
     private void parseShiftSelector(String r93, String r95) {
-        // 221093 + 221095 on TCU (7E1) — confirmed gear encoding (sfe_20260318_205734.csv):
-        //   R: 093=0x06, 095=0x21 | P: 093=0x04, 095=0x20
-        //   N: 093=0x00, 095=0x20 | D: 093=0x00, 095=0x00
-        // Use 095 as the primary discriminator; 093 differentiates P vs R.
+        // 221093 + 221095 on TCU (7E1) — corrected gear encoding (sfe_20260319_083507.csv):
+        //   R: 093=0x06, 095=0x21 | D: 093=0x04, 095=0x20
+        //   N: 093=0x00, 095=0x20 | P: 093=0x00, 095=0x00
+        // The March 18 gear-cycle log had P and D labels SWAPPED. The March 19 highway
+        // drive (22 min, CVT 57→84°C) shows 093=0x04/095=0x20 throughout — that is Drive.
+        // Arriving parked shows 093=0x00/095=0x00 — that is Park.
+        // Primary discriminator: 093 bit2 (0x04) distinguishes D from N/P.
         // If either PID errors we keep the last known value (don't clear).
         int a93 = isError(r93) ? -1 : m22byte(r93, 0);
         int a95 = isError(r95) ? -1 : m22byte(r95, 0);
         if (a93 < 0 || a95 < 0) return; // keep last known shiftPos
-        if ((a95 & 0x20) == 0) {
-            data.shiftPos = "D"; // bit5 clear → Drive (or S, encoding unknown)
-        } else if ((a93 & 0x02) != 0) {
-            data.shiftPos = "R"; // bit1 of 093 set → Reverse
+        if ((a93 & 0x02) != 0) {
+            data.shiftPos = "R"; // 093 bit1 set → Reverse (unique: bit1+bit2, 095 bit0 set)
         } else if ((a93 & 0x04) != 0) {
-            data.shiftPos = "P"; // bit2 of 093 set (but not bit1) → Park
+            data.shiftPos = "D"; // 093 bit2 set (not bit1) → Drive
+        } else if ((a95 & 0x20) != 0) {
+            data.shiftPos = "N"; // 093=0, 095 bit5 set → Neutral
         } else {
-            data.shiftPos = "N"; // bit5 of 095 set, 093=0x00 → Neutral
+            data.shiftPos = "P"; // both 0 → Park
         }
     }
 

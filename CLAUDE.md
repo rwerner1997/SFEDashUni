@@ -43,7 +43,7 @@ Source: ScanGauge official XGauge page for Subaru Impreza WRX + Outback CVT.
 | 223018 | Feedback Knock Correction (°) | `byte / 4 - 32` | **Returns 7F2231 (requestOutOfRange) on every poll on this car — PID not supported.** `knockCorr` always NaN; knock alert will never fire from this source. |
 | 2210AF | **Engine Oil Temp** (°F) | `byte * 9/5 - 40` | ScanGauge EOT — **NOT knock corr** |
 | 2210B0 | Fine Knock Learning (°) | `byte / 4 - 32` | Works on this ECU; unverified formula. Log shows values ~0x28(-22°) at idle/light load and 0x9B-0x9D(+6.75–7.25°) occasionally. Possibly correct. |
-| 2210B1 | DAM — Dynamic Advance Multiplier | `byte / 16` | FA20DIT encodes DAM as 0–16 counts; 16 = 1.0 (full advance). Observed: 0x00, 0x01, 0x03, 0x0C across sessions. Prior formula was /255 which kept all values near 0 — corrected. |
+| 2210B1 | DAM — Dynamic Advance Multiplier | `byte / 16` | FA20DIT encodes DAM as 0–30+ counts; 16 = 1.0 (full advance). Values **can exceed 1.0** — highway drive observed up to 0x1E (30) = 1.875 (ECU adding extra advance above base map). Observed range: 0x00–0x1E across sessions. Prior formula was /255 — corrected. |
 | 223062 | Roughness Cyl 1 | raw byte | ScanGauge RM1 confirmed |
 | 223048 | Roughness Cyl 2 | raw byte | ScanGauge RM2 confirmed |
 | 223068 | Roughness Cyl 3 | raw byte | ScanGauge RM3 confirmed |
@@ -83,16 +83,18 @@ Sources: pid_scan_20260315_160213.csv (mid-drive), pid_scan_20260316_083419.csv 
 | **221093** | 00 | 04 | 04 | **SHIFT SELECTOR (primary)** — used with 221095 for PRNDL decode. See encoding table below. |
 | **221095** | 00 | 20 | 20 | **SHIFT SELECTOR (secondary)** — distinguishes N from D (bit 5). See encoding table below. |
 
-### Confirmed PRNDL Encoding (sfe_20260318_205734.csv, R→P→N→D pass)
+### Confirmed PRNDL Encoding (corrected — sfe_20260319_083507.csv, 22-min highway drive)
 | Gear | 221093 | 221095 | Key bits |
 |------|--------|--------|----------|
 | R    | 0x06   | 0x21   | 093 bit1+bit2 set; 095 bit0+bit5 set |
-| P    | 0x04   | 0x20   | 093 bit2 set (not bit1); 095 bit5 set |
-| N    | 0x00   | 0x20   | 093 = 0; 095 bit5 set |
-| D    | 0x00   | 0x00   | both 0 (confirmed mid-drive scans) |
+| D    | 0x04   | 0x20   | 093 bit2 set (not bit1); 095 bit5 set — **entire 22-min highway drive** |
+| N    | 0x00   | 0x20   | 093 = 0; 095 bit5 set — brief transition at destination |
+| P    | 0x00   | 0x00   | both 0 — **confirmed parked at destination** |
 | S    | ?      | ?      | not captured — encoding unknown |
 
-Decode logic (OBDManager.parseShiftSelector): if `095 bit5` clear → D; elif `093 bit1` set → R; elif `093 bit2` set → P; else N. Stored as `DashData.shiftPos` (String "P"/"R"/"N"/"D", null = no reading).
+**⚠ CORRECTION (2026-03-19):** The March 18 gear-cycle log (sfe_20260318_205734.csv) had P and D labels **swapped**. The March 19 highway drive (sfe_20260319_083507.csv, CVT 57→84°C over 22 min) conclusively shows 093=0x04/095=0x20 throughout the entire drive = Drive; 093=0x00/095=0x00 when parked at destination = Park.
+
+Decode logic (OBDManager.parseShiftSelector): if `093 bit1` set → R; elif `093 bit2` set → D; elif `095 bit5` set → N; else → P. Stored as `DashData.shiftPos` (String "P"/"R"/"N"/"D", null = no reading).
 
 ## Known Wrong PIDs (do not use)
 - `2210AF` for knock correction — it's engine oil temperature.
