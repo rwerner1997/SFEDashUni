@@ -209,13 +209,16 @@ void OBDManager::pollLoop() {
             }
         }
 
-        // ── TIER 3d: DAM — offset 7 in the 10-loop window ─────────────────
+        // ── TIER 3d: DAM + injection — offset 7 in the 10-loop window ────────
         if (loopCount % 10 == 7) {
             setHeader("7E0", "7E8");
             parseDAM(sendCmdTimeout("2210B1", CMD_TIMEOUT_SLOW));
+            parseInjDutyCycle(sendCmdTimeout("2210C1", CMD_TIMEOUT_SLOW));
+            parseInjPulse(sendCmdTimeout("2210B4", CMD_TIMEOUT_SLOW));
         }
 
         _data.updatePeaks();
+        _data.updateAverages();
         _data.recordKnockEvent();
 
         loopCount++;
@@ -530,6 +533,20 @@ void OBDManager::parseRoughness(const String& r, int cyl) {
         case 3: _data.rough3 = (float)a; break;
         case 4: _data.rough4 = (float)a; break;
     }
+}
+
+void OBDManager::parseInjDutyCycle(const String& r) {
+    // 2210C1 — injection duty cycle; raw byte / 2 → %
+    if (isError(r)) return;
+    int a = m22byte(r, 0); if (a < 0) return;
+    _data.injDutyPct = a / 2.0f;
+}
+
+void OBDManager::parseInjPulse(const String& r) {
+    // 2210B4 — injection pulse width; raw word / 1000 → ms (unverified scale)
+    if (isError(r)) return;
+    int w = m22word(r); if (w < 0) return;
+    _data.injPulseMs = w / 1000.0f;
 }
 
 void OBDManager::parseShiftSelector(const String& r93, const String& r95) {

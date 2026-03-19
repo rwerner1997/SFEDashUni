@@ -3,7 +3,7 @@
 
 static const char* PAGE_NAMES[PAGE_COUNT] = {
     "ENGINE", "TEMPS", "BOOST", "FUEL",
-    "VITALS", "ROUGHNESS", "G-FORCE", "TIMING", "SESSION"
+    "VITALS", "ROUGHNESS", "G-FORCE", "TIMING", "AVERAGES", "SESSION"
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -269,6 +269,7 @@ void DashView::drawPage(int page) {
         case 5: drawRoughnessPage();    break;
         case 6: drawGforcePage();       break;
         case 7: drawTimingPage();       break;
+        case 8: drawAveragesPage();     break;
         default: drawSessionPage();     break;
     }
 
@@ -347,10 +348,10 @@ void DashView::drawFuelPage() {
                  theme().accent, 10, 20);
 
     int tw = 85, th = 56, ty = 202, tx0 = 5;
-    drawTile(tx0,       ty, tw, th, "LTFT",   _data.ltftPct,  "%+.1f", "%");
-    drawTile(tx0 + 90,  ty, tw, th, "LOAD",   _data.loadPct,  "%.0f",  "%");
-    drawTile(tx0 + 180, ty, tw, th, "MAF",    _data.mafGs,    "%.1f",  " g/s");
-    drawTile(tx0 + 270, ty, tw, th, "TIMING", _data.timingDeg,"%.1f",  "\xB0");
+    drawTile(tx0,       ty, tw, th, "LTFT",     _data.ltftPct,    "%+.1f", "%");
+    drawTile(tx0 + 90,  ty, tw, th, "MAF",      _data.mafGs,      "%.1f",  " g/s");
+    drawTile(tx0 + 180, ty, tw, th, "INJ DUTY", _data.injDutyPct, "%.0f",  "%");
+    drawTile(tx0 + 270, ty, tw, th, "INJ PW",   _data.injPulseMs, "%.2f",  " ms");
 }
 
 // ── Page 4: ENGINE VITALS ─────────────────────────────────────────────────────
@@ -455,7 +456,114 @@ void DashView::drawTimingPage() {
     drawTile(tx0 + 270, ty, tw, th, "LOAD",    _data.loadPct,        "%.0f", "%");
 }
 
-// ── Page 8 (default): SESSION ─────────────────────────────────────────────────
+// ── Page 8: AVERAGES ─────────────────────────────────────────────────────────
+
+void DashView::drawAveragesPage() {
+    TFT_eSprite* c = _sprite.created() ? &_sprite : nullptr;
+    if (!c) return;
+
+    // 3×3 tile grid filling the main area
+    static constexpr int COLS   = 3;
+    static constexpr int ROWS   = 3;
+    static constexpr int HEADER = 28;
+    int tW = MAIN_W / COLS;                      // tile width  (~123 px)
+    int tH = (MAIN_H - HEADER - 18) / ROWS;      // tile height (~80 px)
+
+    // Header band
+    c->fillRect(0, 0, MAIN_W, HEADER, 0x2104);
+    c->setTextColor(COL_TEXT, 0x2104);
+    c->setTextFont(4);
+    c->setTextDatum(MC_DATUM);
+    c->drawString("AVERAGES", MAIN_W/2, HEADER/2);
+
+    // Gear position badge (top-right of header)
+    {
+        bool gKnown = (_data.shiftPos[0] != '\0');
+        c->setTextFont(2);
+        c->setTextColor(gKnown ? theme().accent : COL_DIM, 0x2104);
+        c->setTextDatum(MR_DATUM);
+        char gBuf[8];
+        snprintf(gBuf, sizeof(gBuf), "GR:%s", gKnown ? (const char*)_data.shiftPos : "--");
+        c->drawString(gBuf, MAIN_W - 4, HEADER/2);
+    }
+
+    struct AvgEntry {
+        const char* label;
+        float       avg;
+        float       live;
+        const char* fmt;
+        const char* unit;
+        uint16_t    col;
+    };
+
+    float b    = _data.boostPsi();
+    float hp   = _data.estHp();
+    AvgEntry entries[] = {
+        { "AVG RPM",    _data.avgRpm,         _data.rpmEst(),        "%.0f", "RPM", COL_GOOD      },
+        { "AVG SPEED",  _data.avgSpeedMph,     _data.speedMphEst(),   "%.0f", "MPH", 0x001F        },
+        { "AVG BOOST",  _data.avgBoostPsi,     b,                     "%.1f", "PSI", theme().accent},
+        { "AVG LOAD",   _data.avgLoadPct,      _data.loadPct,         "%.0f", "%",   COL_WARN      },
+        { "AVG COOLANT",_data.avgCoolantF,     _data.coolantF(),      "%.0f", "\xB0""F", 0xFD20   },
+        { "AVG PEDAL",  _data.avgThrottlePct,  _data.pedalPct,        "%.0f", "%",   COL_GOOD      },
+        { "AVG STFT",   _data.avgStftPct,      _data.stftPct,         "%.1f", "%",   0xF81F        },
+        { "AVG MAF",    _data.avgMafGs,        _data.mafGs,           "%.1f", "G/S", 0xFD20        },
+        { "AVG HP",     _data.avgEstHp,        hp,                    "%.0f", "HP",  theme().accent},
+    };
+
+    int y0 = HEADER;
+    for (int i = 0; i < 9; i++) {
+        int col2 = i % COLS, row2 = i / COLS;
+        int tx = col2 * tW + 2, ty = y0 + row2 * tH + 2;
+        int tw2 = tW - 4, th2 = tH - 4;
+        uint16_t ac = entries[i].col;
+
+        c->fillRoundRect(tx, ty, tw2, th2, 3, 0x2104);
+        // Accent top bar
+        c->fillRect(tx, ty, tw2, 3, ac);
+
+        // Label
+        c->setTextFont(1);
+        c->setTextColor(COL_DIM, 0x2104);
+        c->setTextDatum(TL_DATUM);
+        c->drawString(entries[i].label, tx + 4, ty + 6);
+
+        // Average value (large, centre)
+        char buf[12]; fmtVal(buf, sizeof(buf), entries[i].avg, entries[i].fmt);
+        c->setTextFont(4);
+        c->setTextColor(isnan(entries[i].avg) ? COL_DIM : COL_TEXT, 0x2104);
+        c->setTextDatum(MC_DATUM);
+        c->drawString(buf, tx + tw2/2, ty + th2/2 + 2);
+
+        // Unit (bottom-right)
+        c->setTextFont(1);
+        c->setTextColor(ac, 0x2104);
+        c->setTextDatum(BR_DATUM);
+        c->drawString(entries[i].unit, tx + tw2 - 3, ty + th2 - 2);
+
+        // Live "now" value (bottom-left, dim)
+        if (!isnan(entries[i].live)) {
+            char liveBuf[12]; fmtVal(liveBuf, sizeof(liveBuf), entries[i].live, entries[i].fmt);
+            char nowStr[16]; snprintf(nowStr, sizeof(nowStr), ">%s", liveBuf);
+            c->setTextFont(1);
+            c->setTextColor(COL_DIM, 0x2104);
+            c->setTextDatum(BL_DATUM);
+            c->drawString(nowStr, tx + 3, ty + th2 - 2);
+        }
+    }
+
+    // Footer: sample count
+    int fy = y0 + ROWS * tH + 2;
+    c->setTextFont(1);
+    c->setTextColor(COL_DIM, COL_BG);
+    c->setTextDatum(ML_DATUM);
+    char smpBuf[32]; snprintf(smpBuf, sizeof(smpBuf), "SAMPLES: %d", _data.avgSampleCount);
+    c->drawString(smpBuf, 6, fy + 9);
+    c->setTextColor(theme().accent, COL_BG);
+    c->setTextDatum(MR_DATUM);
+    c->drawString("IR 9 = RESET", MAIN_W - 6, fy + 9);
+}
+
+// ── Page 9 (default): SESSION ─────────────────────────────────────────────────
 
 void DashView::drawSessionPage() {
     TFT_eSprite* c = _sprite.created() ? &_sprite : nullptr;

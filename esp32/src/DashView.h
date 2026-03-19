@@ -13,14 +13,15 @@
 //
 // Pages (0–7):
 //   0  ENGINE         RPM arc (hero), MAF, STFT, LTFT, Load
-//   1  TEMPS          Coolant arc, Oil, CVT, CAT, Batt Temp
+//   1  TEMPS          Coolant arc, Oil, CVT, CAT, Fuel
 //   2  BOOST          Boost arc + turbo wheel, Wastegate, STFT, Fine Knock
 //   3  FUEL           STFT arc (hero), LTFT, Load, MAF, Timing
 //   4  ENGINE VITALS  FA20DIT boxer diagram (animated), Load, Throttle, Oil, VVT-L
 //   5  ROUGHNESS      4-cylinder roughness bars
 //   6  G-FORCE        Longitudinal G dot plot
 //   7  TIMING         Timing arc, Fine Knock, DAM, STFT, Load
-//   8  SESSION        Peak values: Boost, RPM, Timing, Load, Speed, CVT, MAF, HP, Knock
+//   8  AVERAGES       Running trip averages: RPM, Speed, Boost, Load, Coolant, Pedal, STFT, MAF, HP
+//   9  SESSION        Peak values: Boost, RPM, Timing, Load, Speed, CVT, MAF, HP, CAT
 //
 // IR controls (handled by main.cpp, forwarded via public methods):
 //   LEFT/RIGHT         ← prev/next page
@@ -32,7 +33,7 @@
 //   #                  ← mute alerts 5 min
 // ─────────────────────────────────────────────────────────────────────────────
 
-static constexpr int PAGE_COUNT = 9;
+static constexpr int PAGE_COUNT = 10;
 
 // ── Screen geometry ───────────────────────────────────────────────────────────
 static constexpr int STRIP_W    = 55;
@@ -145,6 +146,7 @@ private:
     void drawRoughnessPage();
     void drawGforcePage();
     void drawTimingPage();
+    void drawAveragesPage();
     void drawSessionPage();
 
     // ── Common widgets ───────────────────────────────────────────────────────

@@ -60,6 +60,10 @@ struct DashData {
     volatile float fuelLevelPct   = NAN;  // 012F
     volatile char  shiftPos[4]    = "";   // PRNDL: "P"/"R"/"N"/"D" (221093+221095 @ TCU 7E1)
 
+    // ── Mode 22 injection (7E0/7E8) ──────────────────────────────────────────
+    volatile float injDutyPct     = NAN;  // 2210C1 — injection duty cycle %
+    volatile float injPulseMs     = NAN;  // 2210B4 — injection pulse width ms
+
     // ── Derived getters ──────────────────────────────────────────────────────
     float speedMph()     const { return speedKph * 0.621371f; }
     float coolantF()     const { return coolantC * 9.0f/5.0f + 32.0f; }
@@ -106,6 +110,41 @@ struct DashData {
         return (mapEst - baroKpa) / 6.89476f;
     }
 
+    // ── Running trip averages (Welford's online algorithm) ───────────────────
+    volatile float avgRpm         = NAN;
+    volatile float avgSpeedMph    = NAN;
+    volatile float avgBoostPsi    = NAN;
+    volatile float avgLoadPct     = NAN;
+    volatile float avgCoolantF    = NAN;
+    volatile float avgThrottlePct = NAN;
+    volatile float avgStftPct     = NAN;
+    volatile float avgMafGs       = NAN;
+    volatile float avgEstHp       = NAN;
+    volatile int   avgSampleCount = 0;
+
+    void updateAverages() {
+        avgSampleCount++;
+        int n = avgSampleCount;
+        if (!isnan(rpm))      avgRpm          = _wel(avgRpm,         rpm,         n);
+        if (!isnan(speedKph)) avgSpeedMph     = _wel(avgSpeedMph,    speedMph(),  n);
+        float b = boostPsi();
+        if (!isnan(b))        avgBoostPsi     = _wel(avgBoostPsi,    b,           n);
+        if (!isnan(loadPct))  avgLoadPct      = _wel(avgLoadPct,     loadPct,     n);
+        if (!isnan(coolantC)) avgCoolantF     = _wel(avgCoolantF,    coolantF(),  n);
+        if (!isnan(pedalPct)) avgThrottlePct  = _wel(avgThrottlePct, pedalPct,    n);
+        if (!isnan(stftPct))  avgStftPct      = _wel(avgStftPct,     stftPct,     n);
+        if (!isnan(mafGs))    avgMafGs        = _wel(avgMafGs,       mafGs,       n);
+        float hp = estHp();
+        if (!isnan(hp))       avgEstHp        = _wel(avgEstHp,       hp,          n);
+    }
+
+    void resetAverages() {
+        avgRpm = NAN; avgSpeedMph = NAN; avgBoostPsi = NAN;
+        avgLoadPct = NAN; avgCoolantF = NAN; avgThrottlePct = NAN;
+        avgStftPct = NAN; avgMafGs = NAN; avgEstHp = NAN;
+        avgSampleCount = 0;
+    }
+
     // ── Knock session tracking ────────────────────────────────────────────────
     volatile int knockEventCount = 0;
     void recordKnockEvent() {
@@ -146,6 +185,12 @@ struct DashData {
         peakMafGs    = NAN; peakEstHp = NAN; peakCatTempF = NAN;
         peakCvtTempF = NAN;
         knockEventCount = 0;
+        resetAverages();
+    }
+
+private:
+    static float _wel(float cur, float newV, int n) {
+        return isnan(cur) ? newV : cur + (newV - cur) / (float)n;
     }
 };
 

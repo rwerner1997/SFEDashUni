@@ -13,8 +13,9 @@
 // Tier 2 (~7 Hz):  Speed, Timing, MAF, Pedal, Load, STFT, LTFT,
 //                  Wastegate (2210A8), Fine Knock (2210B0), VVT-L (2210B9)
 // Tier 3a (~1 Hz): Coolant, Oil, CAT, Baro, Fuel, Battery,
-//                  CVT Temp (2210D2 @ TCU 7E1, byte-50), Batt Temp, Roughness*
-// Tier 3d (~1 Hz): DAM (2210B1, /16)
+//                  CVT Temp (2210D2 @ TCU 7E1, byte-50),
+//                  Shift selector (221093+221095 @ TCU 7E1), Roughness*
+// Tier 3d (~1 Hz): DAM (2210B1, /16), Inj duty (2210C1), Inj pulse (2210B4)
 // *Roughness polled only when page 4 (ENGINE VITALS) or page 5 (ROUGHNESS) active.
 //
 // Runs on a dedicated FreeRTOS task (core 1, 8KB stack).
@@ -83,6 +84,8 @@ private:
     void parseDAM(const String& r);
     void parseRoughness(const String& r, int cyl);
     void parseShiftSelector(const String& r93, const String& r95);
+    void parseInjDutyCycle(const String& r);
+    void parseInjPulse(const String& r);
 
     void sleepMs(uint32_t ms);
 
